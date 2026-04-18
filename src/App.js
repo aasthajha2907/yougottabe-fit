@@ -803,7 +803,8 @@ function Planner({ goals, log, onLogMeal }) {
 Replace each X with a dish name from this list ONLY: ${dishNames.join(", ")}
 Target: ~${goals.cal} kcal/day, ${goals.protein}g protein/day. Vary the meals.`;
       const raw = await callAI([{role:"user",content:prompt}], "You are a meal planner. Output only valid JSON. No markdown. No explanation. Just the JSON object.");
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+const cleaned = raw.replace(/```json/g,"").replace(/```/g,"").trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("no JSON in response");
       const parsed = JSON.parse(jsonMatch[0]);
       const dayKeys = ["mon","tue","wed","thu","fri","sat","sun"];
