@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/chat.js": {
-      "runtime": "nodejs@20"
+      "memory": 256
     }
   },
   "rewrites": [
