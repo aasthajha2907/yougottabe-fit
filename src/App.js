@@ -782,7 +782,7 @@ function MenuTab({ pantry, onAddToLog }) {
 // ── WEEKLY PLANNER ────────────────────────────────────────────────────────────
 function Planner({ goals, log, recipes, onLogMeal }) {
   const [plan, setPlan] = useState(()=>load("ft_plan",{}));
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState(false); // eslint-disable-line no-unused-vars
   const [showShopping, setShowShopping] = useState(false);
   const [swapDay, setSwapDay] = useState(null);
   const [swapMeal, setSwapMeal] = useState(null);
@@ -802,7 +802,6 @@ function Planner({ goals, log, recipes, onLogMeal }) {
     const bfPick = (i) => bf[i % bf.length]?.name || "Overnight Oats";
     const lunchPick = (i) => protein[i % protein.length]?.name || "Tuna Yoghurt Bowl";
     const dinnerPick = (i) => mains[i % mains.length]?.name || "Rice + Chicken";
-    const dayKeys = ["mon","tue","wed","thu","fri","sat","sun"];
     const newPlan = {};
     DAYS.forEach((day, i) => {
       newPlan[day.key] = {
