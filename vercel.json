@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/chat.js": {
-      "memory": 256
-    }
-  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
