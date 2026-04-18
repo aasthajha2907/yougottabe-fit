@@ -1,9 +1,11 @@
 {
-  "version": 2,
-  "framework": null,
-  "buildCommand": "npm run build",
-  "outputDirectory": "build",
+  "functions": {
+    "api/chat.js": {
+      "runtime": "nodejs20.x"
+    }
+  },
   "rewrites": [
+    { "source": "/api/chat", "destination": "/api/chat" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
