@@ -809,7 +809,6 @@ function Library({ ingredients, recipes, onSaveIng, onSaveRec }) {
   const [rSrc, setRSrc] = useState("");
   const [rQty, setRQty] = useState({});
   const [rUnit, setRUnit] = useState({});
-  const [editRecIdx, setEditRecIdx] = useState(null);
 
   function saveIng() {
     if(!ingF.name) return;
