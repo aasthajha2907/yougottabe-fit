@@ -256,7 +256,7 @@ export default function App() {
         {tab==="today"   && <Today totals={totals} goals={goals} viewLog={viewLog} steps={steps[viewDate]||0} water={water[viewDate]||0} tdee={tdee} isToday={isToday} viewDate={viewDate} onSteps={v=>sSt({...steps,[viewDate]:v})} onWater={v=>sWat({...water,[viewDate]:v})} onRemove={i=>sLog({...log,[viewDate]:viewLog.filter((_,idx)=>idx!==i)})} onEdit={(i,e)=>sLog({...log,[viewDate]:viewLog.map((x,idx)=>idx===i?e:x)})} onGoToLog={()=>setTab("log")} streak={streak} consistency={consistency}/>}
         {tab==="log"     && <ChatLog ingredients={ingredients} recipes={recipes} viewLog={viewLog} viewDate={viewDate} goals={goals} onAdd={e=>sLog({...log,[viewDate]:[...viewLog,...(Array.isArray(e)?e:[e])]})} onRemoveByName={name=>sLog({...log,[viewDate]:viewLog.filter(e=>e.name!==name)})} onSaveIng={sIng} onSaveRec={sRec}/>}
         {tab==="menu"    && <MenuTab pantry={pantry} onAddToLog={e=>{ sLog({...log,[viewDate]:[...viewLog,e]}); setTab("today"); }}/>}
-        {tab==="planner" && <Planner goals={goals} log={log} onLogMeal={e=>{ sLog({...log,[today]:[...(log[today]||[]),e]}); }}/>}
+        {tab==="planner" && <Planner goals={goals} log={log} recipes={recipes} onLogMeal={e=>{ sLog({...log,[today]:[...(log[today]||[]),e]}); }}/>}
         {tab==="scan"    && <ScanLabel ingredients={ingredients} onSave={sIng}/>}
         {tab==="library" && <Library ingredients={ingredients} recipes={recipes} onSaveIng={sIng} onSaveRec={sRec}/>}
         {tab==="fat"     && <FatLoss log={log} goals={goals} tdee={tdee} baseline={baseline} profile={profile} weights={weights} onSaveWeights={sWts}/>}
@@ -780,7 +780,7 @@ function MenuTab({ pantry, onAddToLog }) {
 }
 
 // ── WEEKLY PLANNER ────────────────────────────────────────────────────────────
-function Planner({ goals, log, onLogMeal }) {
+function Planner({ goals, log, recipes, onLogMeal }) {
   const [plan, setPlan] = useState(()=>load("ft_plan",{}));
   const [generating, setGenerating] = useState(false);
   const [showShopping, setShowShopping] = useState(false);
@@ -793,28 +793,25 @@ function Planner({ goals, log, onLogMeal }) {
     return { key:d.toISOString().split("T")[0], label:d.toLocaleDateString("en-IN",{weekday:"short",day:"numeric"}) };
   });
 
-  async function autoGenerate() {
-    setGenerating(true);
-    try {
-      const breakfast = MY_MENU.filter(d=>["breakfast","snacks","drinks"].includes(d.category)).map(d=>d.name);
-      const mains = MY_MENU.filter(d=>["mains","protein-meals"].includes(d.category)).map(d=>d.name);
-      const prompt = `Output ONLY valid JSON, no markdown, no explanation:
-{"mon":{"breakfast":"${breakfast[0]}","lunch":"${mains[0]}","dinner":"${mains[1]}"},"tue":{"breakfast":"${breakfast[1]}","lunch":"${mains[2]}","dinner":"${mains[0]}"},"wed":{"breakfast":"${breakfast[0]}","lunch":"${mains[1]}","dinner":"${mains[3]}"},"thu":{"breakfast":"${breakfast[2]||breakfast[0]}","lunch":"${mains[0]}","dinner":"${mains[2]}"},"fri":{"breakfast":"${breakfast[1]}","lunch":"${mains[3]}","dinner":"${mains[1]}"},"sat":{"breakfast":"${breakfast[0]}","lunch":"${mains[2]}","dinner":"${mains[0]}"},"sun":{"breakfast":"${breakfast[1]}","lunch":"${mains[1]}","dinner":"${mains[3]}"}}
-
-Swap any meals with better options from breakfast list: ${breakfast.join(", ")} and mains list: ${mains.join(", ")}. Target ${goals.cal} kcal/day. Return the same JSON structure with your chosen dish names.`;
-      const raw = await callAI([{role:"user",content:prompt}], "You are a meal planner. Output only valid JSON. No markdown, no backticks, no explanation. Just the raw JSON object starting with {");
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("no JSON in response");
-      const parsed = JSON.parse(jsonMatch[0]);
-      const dayKeys = ["mon","tue","wed","thu","fri","sat","sun"];
-      const newPlan = {};
-      DAYS.forEach((day,i)=>{
-        const dk = dayKeys[i];
-        newPlan[day.key] = parsed[dk] || {};
-      });
-      savePlan(newPlan);
-    } catch(e) { console.error(e); }
-    setGenerating(false);
+  function autoGenerate() {
+    const customMeals = (recipes||[]).map(r=>({ name:r.name, category:"mains", cal:[r.cal||0, r.cal||0] }));
+    const allMenu = [...MY_MENU, ...customMeals];
+    const bf = allMenu.filter(d=>d.category==="breakfast");
+    const protein = allMenu.filter(d=>d.category==="protein-meals");
+    const mains = allMenu.filter(d=>["mains","protein-meals"].includes(d.category));
+    const bfPick = (i) => bf[i % bf.length]?.name || "Overnight Oats";
+    const lunchPick = (i) => protein[i % protein.length]?.name || "Tuna Yoghurt Bowl";
+    const dinnerPick = (i) => mains[i % mains.length]?.name || "Rice + Chicken";
+    const dayKeys = ["mon","tue","wed","thu","fri","sat","sun"];
+    const newPlan = {};
+    DAYS.forEach((day, i) => {
+      newPlan[day.key] = {
+        breakfast: bfPick(i),
+        lunch: lunchPick(i),
+        dinner: dinnerPick(i),
+      };
+    });
+    savePlan(newPlan);
   }
 
   // shopping list from plan
