@@ -796,15 +796,14 @@ function Planner({ goals, log, onLogMeal }) {
   async function autoGenerate() {
     setGenerating(true);
     try {
-      const dishNames = MY_MENU.map(d=>d.name);
-      const prompt = `Return ONLY this JSON (no explanation, no markdown):
-{"mon":{"breakfast":"X","lunch":"X","dinner":"X"},"tue":{"breakfast":"X","lunch":"X","dinner":"X"},"wed":{"breakfast":"X","lunch":"X","dinner":"X"},"thu":{"breakfast":"X","lunch":"X","dinner":"X"},"fri":{"breakfast":"X","lunch":"X","dinner":"X"},"sat":{"breakfast":"X","lunch":"X","dinner":"X"},"sun":{"breakfast":"X","lunch":"X","dinner":"X"}}
+      const breakfast = MY_MENU.filter(d=>["breakfast","snacks","drinks"].includes(d.category)).map(d=>d.name);
+      const mains = MY_MENU.filter(d=>["mains","protein-meals"].includes(d.category)).map(d=>d.name);
+      const prompt = `Output ONLY valid JSON, no markdown, no explanation:
+{"mon":{"breakfast":"${breakfast[0]}","lunch":"${mains[0]}","dinner":"${mains[1]}"},"tue":{"breakfast":"${breakfast[1]}","lunch":"${mains[2]}","dinner":"${mains[0]}"},"wed":{"breakfast":"${breakfast[0]}","lunch":"${mains[1]}","dinner":"${mains[3]}"},"thu":{"breakfast":"${breakfast[2]||breakfast[0]}","lunch":"${mains[0]}","dinner":"${mains[2]}"},"fri":{"breakfast":"${breakfast[1]}","lunch":"${mains[3]}","dinner":"${mains[1]}"},"sat":{"breakfast":"${breakfast[0]}","lunch":"${mains[2]}","dinner":"${mains[0]}"},"sun":{"breakfast":"${breakfast[1]}","lunch":"${mains[1]}","dinner":"${mains[3]}"}}
 
-Replace each X with a dish name from this list ONLY: ${dishNames.join(", ")}
-Target: ~${goals.cal} kcal/day, ${goals.protein}g protein/day. Vary the meals.`;
-      const raw = await callAI([{role:"user",content:prompt}], "You are a meal planner. Output only valid JSON. No markdown. No explanation. Just the JSON object.");
-const cleaned = raw.replace(/```json/g,"").replace(/```/g,"").trim();
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+Swap any meals with better options from breakfast list: ${breakfast.join(", ")} and mains list: ${mains.join(", ")}. Target ${goals.cal} kcal/day. Return the same JSON structure with your chosen dish names.`;
+      const raw = await callAI([{role:"user",content:prompt}], "You are a meal planner. Output only valid JSON. No markdown, no backticks, no explanation. Just the raw JSON object starting with {");
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("no JSON in response");
       const parsed = JSON.parse(jsonMatch[0]);
       const dayKeys = ["mon","tue","wed","thu","fri","sat","sun"];
