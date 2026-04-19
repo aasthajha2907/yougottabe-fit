@@ -1006,22 +1006,29 @@ function ScanLabel({ ingredients, onSave }) {
     if(!imageB64) return;
     setScanning(true); setError(null);
     try {
-      const key = process.env.REACT_APP_ANTHROPIC_KEY;
-      const resp = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST", headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-allow-browser":"true"},
-        body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:800,
-          messages:[{role:"user",content:[
-            {type:"image",source:{type:"base64",media_type:"image/jpeg",data:imageB64}},
-            {type:"text",text:`Read this nutrition label. Return ONLY raw JSON:
-{"name":"product name","servingSize":number,"servingUnit":"g/ml/piece","cal":number,"protein":number,"carbs":number,"fat":number,"fiber":number,"sodium":number,"sugar":number,"saturatedFat":number,"cholesterol":number,"potassium":number,"calcium":number,"iron":number,"vitaminC":number,"vitaminD":number}
-All numbers. sodium/calcium/iron/potassium in mg. vitaminD in mcg. others in g. Use 0 if not visible.`}
-          ]}]
-        })
-      });
+      const key = process.env.REACT_APP_GEMINI_KEY;
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+        {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            contents:[{role:"user", parts:[
+              {inline_data:{mime_type:"image/jpeg", data:imageB64}},
+              {text:`Read this nutrition label carefully. Return ONLY raw JSON, no markdown:
+{"name":"product name","servingSize":100,"servingUnit":"g","cal":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sodium":0,"sugar":0,"saturatedFat":0,"cholesterol":0,"potassium":0,"calcium":0,"iron":0,"vitaminC":0,"vitaminD":0}
+All numbers. sodium/calcium/iron/potassium/cholesterol in mg. vitaminD in mcg. others in g. Use 0 if not visible.`}
+            ]}],
+            generationConfig:{maxOutputTokens:800,temperature:0.1}
+          })
+        }
+      );
       const data = await resp.json();
-      const text = data.content?.find(b=>b.type==="text")?.text||"";
-      setResult(JSON.parse(text.replace(/```json|```/g,"").trim()));
-    } catch { setError("couldn't read it. try better lighting, no glare, full panel in frame."); }
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("no JSON in response");
+      setResult(JSON.parse(jsonMatch[0]));
+    } catch(e) { setError("couldn't read it. try a clearer photo with full label in frame."); }
     finally { setScanning(false); }
   }
 
@@ -1152,7 +1159,7 @@ function Library({ ingredients, recipes, onSaveIng, onSaveRec }) {
   }
 
   function saveRecipe() {
-    if(!recF.name) return;
+    if(!recF.name.trim()) return;
     const total = calcRecipeMacros(recF.recIngredients);
     const perServing = Object.fromEntries(Object.entries(total).map(([k,v])=>[k, Math.round((v/(+recF.yield||1))*10)/10]));
     const rec = { id:Date.now(), name:recF.name, yield:+recF.yield||1, yieldUnit:recF.yieldUnit, steps:recF.steps, ingredients:recF.recIngredients, totalMacros:total, servingUnit:recF.yieldUnit, ...perServing };
@@ -1177,32 +1184,37 @@ function Library({ ingredients, recipes, onSaveIng, onSaveRec }) {
     if (!recipeImgB64) return;
     setExtracting(true);
     try {
-      const key = process.env.REACT_APP_ANTHROPIC_KEY;
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-allow-browser":"true"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514", max_tokens:1500,
-          messages:[{role:"user", content:[
-            {type:"image", source:{type:"base64", media_type:"image/jpeg", data:recipeImgB64}},
-            {type:"text", text:`Extract this recipe. Return ONLY raw JSON:
-{"name":"recipe name","yield":4,"yieldUnit":"serving","steps":"step by step instructions as a single string","ingredients":[{"name":"ingredient name","qty":100,"unit":"g","cal":200,"protein":5,"carbs":30,"fat":3,"fiber":2,"sodium":100}]}
-Estimate macros per ingredient quantity shown. All numbers. No markdown.`}
-          ]}]
-        })
-      });
+      const key = process.env.REACT_APP_GEMINI_KEY;
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+        {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({
+            contents:[{role:"user", parts:[
+              {inline_data:{mime_type:"image/jpeg", data:recipeImgB64}},
+              {text:`Extract this recipe from the image. Return ONLY raw JSON, no markdown:
+{"name":"recipe name","yield":4,"yieldUnit":"g","steps":"instructions","ingredients":[{"name":"ingredient","qty":100,"unit":"g","cal":200,"protein":5,"carbs":30,"fat":3,"fiber":2,"sodium":100}]}
+Estimate macros per ingredient quantity shown. All numbers.`}
+            ]}],
+            generationConfig:{maxOutputTokens:1500,temperature:0.2}
+          })
+        }
+      );
       const data = await resp.json();
-      const text = data.content?.find(b=>b.type==="text")?.text||"";
-      const parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text||"";
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("no JSON");
+      const parsed = JSON.parse(jsonMatch[0]);
       setRecF({
         name: parsed.name||"",
         yield: parsed.yield||1,
-        yieldUnit: parsed.yieldUnit||"serving",
+        yieldUnit: parsed.yieldUnit||"g",
         steps: parsed.steps||"",
         recIngredients: (parsed.ingredients||[]).map(i=>({name:i.name||"",qty:String(i.qty||""),unit:i.unit||"g",cal:String(i.cal||""),protein:String(i.protein||""),carbs:String(i.carbs||""),fat:String(i.fat||""),fiber:String(i.fiber||""),sodium:String(i.sodium||"")}))
       });
       setShowAddRec(true);
-    } catch(e) { alert("Couldn't extract recipe. Try a clearer photo."); }
+    } catch(e) { console.error(e); alert("Couldn't read the recipe. Try a clearer screenshot."); }
     setExtracting(false);
   }
 
@@ -1309,28 +1321,32 @@ Estimate macros per ingredient quantity shown. All numbers. No markdown.`}
           <div style={{ display:"flex", gap:8 }}>
             <Input label="Yields" type="number" value={recF.yield} onChange={e=>setRecF(p=>({...p,yield:e.target.value}))} style={{ flex:1 }}/>
             <Sel label="Unit" value={recF.yieldUnit} onChange={e=>setRecF(p=>({...p,yieldUnit:e.target.value}))} style={{ flex:1 }}>
-              {["serving","bowl","cup","piece","katori","roti","slice"].map(u=><option key={u}>{u}</option>)}
+              {["g","ml","serving","bowl","cup","piece","katori","roti","slice","oz","tbsp","tsp"].map(u=><option key={u}>{u}</option>)}
             </Sel>
           </div>
 
           <div style={{ fontSize:11, fontWeight:700, color:C.sub, textTransform:"uppercase", letterSpacing:1, marginTop:4 }}>Ingredients</div>
           {recF.recIngredients.map((ing,i)=>(
             <div key={i} style={{ background:C.surface, borderRadius:10, padding:10 }}>
-              <div style={{ display:"flex", gap:6, marginBottom:6, alignItems:"center" }}>
-                <input value={ing.name} onChange={e=>updateRecIng(i,"name",e.target.value)} placeholder="Ingredient name"
-                  style={{ flex:2, background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 10px", color:C.text, fontSize:12, outline:"none", fontFamily:"inherit" }}/>
-                <input type="number" value={ing.qty} onChange={e=>updateRecIng(i,"qty",e.target.value)} placeholder="qty"
-                  style={{ flex:1, background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 8px", color:C.text, fontSize:12, outline:"none", fontFamily:"inherit" }}/>
-                <select value={ing.unit} onChange={e=>updateRecIng(i,"unit",e.target.value)}
-                  style={{ flex:1, background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 6px", color:C.text, fontSize:11, outline:"none" }}>
-                  {UNITS.map(u=><option key={u}>{u}</option>)}
-                </select>
-                <button onClick={()=>removeRecIng(i)} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:16 }}>×</button>
+              <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:6 }}>
+                <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                  <input value={ing.name} onChange={e=>updateRecIng(i,"name",e.target.value)} placeholder="Ingredient name"
+                    style={{ flex:1, background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 10px", color:C.text, fontSize:12, outline:"none", fontFamily:"inherit" }}/>
+                  <button onClick={()=>removeRecIng(i)} style={{ background:"none", border:"none", color:C.muted, cursor:"pointer", fontSize:18, flexShrink:0 }}>×</button>
+                </div>
+                <div style={{ display:"flex", gap:6 }}>
+                  <input type="number" value={ing.qty} onChange={e=>updateRecIng(i,"qty",e.target.value)} placeholder="qty"
+                    style={{ flex:1, background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 8px", color:C.text, fontSize:12, outline:"none", fontFamily:"inherit" }}/>
+                  <select value={ing.unit} onChange={e=>updateRecIng(i,"unit",e.target.value)}
+                    style={{ flex:1, background:C.bg, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 6px", color:C.text, fontSize:11, outline:"none" }}>
+                    {UNITS.map(u=><option key={u}>{u}</option>)}
+                  </select>
+                </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:4 }}>
-                {[["cal","kcal"],["protein","P"],["carbs","C"],["fat","F"]].map(([k,l])=>(
+                {[["cal","kcal"],["protein","P g"],["carbs","C g"],["fat","F g"]].map(([k,l])=>(
                   <input key={k} type="number" value={ing[k]} onChange={e=>updateRecIng(i,k,e.target.value)} placeholder={l}
-                    style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:5, padding:"5px 6px", color:C.text, fontSize:11, outline:"none", fontFamily:"monospace", textAlign:"center" }}/>
+                    style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:5, padding:"6px 4px", color:C.text, fontSize:11, outline:"none", fontFamily:"monospace", textAlign:"center", width:"100%", boxSizing:"border-box" }}/>
                 ))}
               </div>
             </div>
