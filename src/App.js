@@ -606,7 +606,9 @@ RULES:
 - Indian food: you know standard values for dal, roti, rice, sabzi, chai, idli, dosa etc.
 - Sodium/calcium/iron in mg. VitaminD in mcg. Everything else in g.
 - For conversational questions with no action, just answer in plain text. No JSON.
-- The message field = your dry one-liner shown in chat.`;"./menu-data";
+- The message field = your dry one-liner shown in chat.`;
+
+import { MY_MENU } from "./menu-data";
 
 // ── persistence ───────────────────────────────────────────────────────────────
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
