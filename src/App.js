@@ -252,7 +252,19 @@ export default function App() {
       {/* content */}
       <div style={{ flex:1, padding:"14px 18px 80px", overflowY:"auto" }} className="fu" key={tab+viewDate}>
         {tab==="today"   && <Today totals={totals} goals={goals} viewLog={viewLog} steps={steps[viewDate]||0} water={water[viewDate]||0} tdee={tdee} isToday={isToday} viewDate={viewDate} onSteps={v=>sSt({...steps,[viewDate]:v})} onWater={v=>sWat({...water,[viewDate]:v})} onRemove={i=>sLog({...log,[viewDate]:viewLog.filter((_,idx)=>idx!==i)})} onEdit={(i,e)=>sLog({...log,[viewDate]:viewLog.map((x,idx)=>idx===i?e:x)})} onGoToLog={()=>setTab("log")} streak={streak} consistency={consistency} profile={profile}/>}
-        {tab==="log"     && <ChatLog ingredients={ingredients} recipes={recipes} viewLog={viewLog} viewDate={viewDate} goals={goals} onAdd={e=>sLog({...log,[viewDate]:[...viewLog,...(Array.isArray(e)?e:[e])]})} onRemoveByName={name=>sLog({...log,[viewDate]:viewLog.filter(e=>e.name!==name)})} onSaveIng={sIng} onSaveRec={sRec}/>}
+        {tab==="log"     && <ChatLog
+          ingredients={ingredients} recipes={recipes} viewLog={viewLog} viewDate={viewDate} goals={goals}
+          onAdd={e=>sLog({...log,[viewDate]:[...viewLog,...(Array.isArray(e)?e:[e])]})}
+          onRemoveByName={name=>sLog({...log,[viewDate]:viewLog.filter(e=>e.name!==name)})}
+          onUpdateByName={(name,newQty,newUnit)=>sLog({...log,[viewDate]:viewLog.map(e=>{
+            if(e.name!==name) return e;
+            const r=(newQty||e.qty)/(e.qty||1);
+            return {...e,qty:newQty||e.qty,unit:newUnit||e.unit,cal:(e.cal||0)*r,protein:(e.protein||0)*r,carbs:(e.carbs||0)*r,fat:(e.fat||0)*r,fiber:(e.fiber||0)*r,sodium:(e.sodium||0)*r};
+          })})}
+          onSaveFood={food=>sIng([...ingredients,{...food,id:Date.now()}])}
+          onNavigate={t=>setTab(t)}
+          onSaveIng={sIng}
+        />}
         {tab==="menu"    && <MenuTab pantry={pantry} remainingCal={Math.round(goals.cal-(totals.cal||0))} onAddToLog={e=>{ sLog({...log,[viewDate]:[...viewLog,e]}); setTab("today"); }}/>}
         {tab==="planner" && <Planner goals={goals} log={log} recipes={recipes} onLogMeal={e=>{ sLog({...log,[today]:[...(log[today]||[]),e]}); }}/>}
         {tab==="scan"    && <ScanLabel ingredients={ingredients} onSave={sIng}/>}
