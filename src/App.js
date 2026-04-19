@@ -608,7 +608,6 @@ RULES:
 - For conversational questions with no action, just answer in plain text. No JSON.
 - The message field = your dry one-liner shown in chat.`;
 
-import { MY_MENU } from "./menu-data";
 
 // ── persistence ───────────────────────────────────────────────────────────────
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
