@@ -439,7 +439,8 @@ function Today({ totals, goals, viewLog, steps, water, tdee, isToday, viewDate, 
             <button onClick={()=>setShowAll(p=>!p)} style={{ background:"none", border:"none", color:C.sub, fontSize:11, cursor:"pointer" }}>{showAll?"▲ less":`▼ all ${viewLog.length}`}</button>
           </div>
           {(showAll?viewLog:viewLog.slice(-5)).map((e,vi)=>{
-            const ri=showAll?vi:viewLog.length-5+vi;
+            const sliceStart = Math.max(0, viewLog.length-5);
+            const ri=showAll?vi:sliceStart+vi;
             return (
               <div key={vi} style={{ padding:"8px 0", borderBottom:vi<(showAll?viewLog:viewLog.slice(-5)).length-1?`1px solid ${C.border}`:"none" }}>
                 {editIdx===ri?(
