@@ -320,6 +320,7 @@ function Today({ totals, goals, viewLog, steps, water, tdee, isToday, viewDate, 
   const [macroDetail, setMacroDetail] = useState(null); // which macro to show breakdown for
   const calPct = (totals.cal||0)/goals.cal;
   const deficit = tdee-(totals.cal||0);
+  // eslint-disable-next-line no-unused-vars
   const fatBurned = deficit>0?deficit/FAT_KCAL:0;
 
   // macro breakdown
