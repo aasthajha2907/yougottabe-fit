@@ -130,6 +130,7 @@ function ArcMeter({ pct, color, size=130, sw=10 }) {
       <path d={`M${sw/2},${size/2} A${r},${r} 0 0,1 ${size-sw/2},${size/2}`} fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${filled} ${circ}`} style={{ transition:"stroke-dasharray 0.7s cubic-bezier(.4,0,.2,1)" }}/>
     </svg>
   );
+}
 export default function App() {
   const [tab, setTab] = useState("today");
   const [viewDate, setViewDate] = useState(dateStr(0)); // for yesterday toggle
