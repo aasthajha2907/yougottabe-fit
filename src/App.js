@@ -29,7 +29,6 @@ const T = {
 };
 
 const NUTR = ["cal","protein","carbs","fat","fiber","sodium","sugar","calcium","iron","vitaminC","vitaminD"];
-const MEALS = ["Breakfast","Lunch","Dinner","Snack","Pre-workout","Post-workout"];
 
 function sumN(entries) {
   return entries.reduce((a,e)=>{ NUTR.forEach(k=>a[k]=(a[k]||0)+(e[k]||0)); return a; },{});
@@ -104,10 +103,6 @@ function Card({children,style:s={}}) {
   return <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:16,padding:16,boxShadow:T.shadow,...s}}>{children}</div>;
 }
 
-function Tag({label,color}) {
-  return <span style={{background:color+"22",color,border:`1px solid ${color}44`,borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700}}>{label}</span>;
-}
-
 function Bar({val,goal,color,height=5}) {
   const pct=Math.min((val||0)/goal*100,100);
   return (
@@ -163,7 +158,7 @@ export default function App() {
     else if(i<0) break;
   }
 
-  const tabs=[{id:"home",icon:"☀️",label:"Home"},{id:"chat",icon:"💬",label:"Chat"},{id:"profile",icon:"👤",label:"Profile"}];
+  const tabs=[{id:"home",icon:"",label:"Home"},{id:"chat",icon:"",label:"Chat"},{id:"profile",icon:"",label:"Profile"}];
 
   return (
     <div style={{background:T.bg,minHeight:"100vh",fontFamily:"'Plus Jakarta Sans','Segoe UI',sans-serif",color:T.text,width:"min(100vw,820px)",margin:"0 auto",display:"flex",flexDirection:"column"}}>
@@ -191,7 +186,7 @@ export default function App() {
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <div style={{background:T.accentBg,border:`1px solid ${T.accent}44`,borderRadius:10,padding:"5px 10px",textAlign:"center"}}>
-            <div style={{fontSize:14,fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{streak}🔥</div>
+            <div style={{fontSize:14,fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{streak} day streak</div>
             <div style={{fontSize:9,color:T.sub}}>streak</div>
           </div>
           <div style={{textAlign:"right"}}>
@@ -218,7 +213,7 @@ export default function App() {
             border:`1px solid ${tab===t.id?T.brown:T.border}`,
             borderRadius:10,padding:"8px 0",fontSize:12,fontWeight:700,
             cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"
-          }}>{t.icon} {t.label}</button>
+          }}>{t.label}</button>
         ))}
       </div>
 
@@ -426,10 +421,9 @@ function Home({totals,goals,log,viewLog,steps,water,tdee,isToday,viewDate,onStep
 function QuickTrack({icon,label,value,goal,color,unit,onSave,sub}) {
   const [edit,setEdit]=useState(false);
   const [draft,setDraft]=useState("");
-  const pct=Math.min(value/goal,1);
   return (
     <Card style={{padding:14}}>
-      <div style={{fontSize:11,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4,fontWeight:700}}>{icon} {label}</div>
+      <div style={{fontSize:11,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4,fontWeight:700}}>{label}</div>
       <div style={{fontSize:22,fontWeight:800,color,fontFamily:"monospace"}}>{value.toLocaleString()}</div>
       <div style={{fontSize:10,color:T.muted,marginBottom:sub?2:6}}>/ {goal.toLocaleString()} {unit}</div>
       {sub&&<div style={{fontSize:11,color:T.green,marginBottom:6,fontWeight:600}}>{sub}</div>}
@@ -461,7 +455,7 @@ function Chat({profile,goals,log,viewDate,viewLog,totals,tdee,foods,recipes,onAd
   const [pending,setPending]=useState(null);
   const [img,setImg]=useState(null);
   const [imgB64,setImgB64]=useState(null);
-  const [imgMime,setImgMime]=useState("image/png");
+  const [imgMime,setImgMime]=useState("image/png"); // eslint-disable-line no-unused-vars
   const fileRef=useRef();
   const bottomRef=useRef();
 
@@ -490,7 +484,7 @@ SAVED RECIPES: ${recipeList}`;
 
   const SYSTEM=`You are a friendly, knowledgeable nutrition assistant built into a fitness tracking app. You have access to Google Search for looking up current nutrition info, ingredient lists, and product details.
 
-PERSONALITY: Warm, calm, helpful. Not robotic. Occasional dry humor. Brief responses — get to the point. No asterisks for bold. No excessive exclamation points.
+PERSONALITY: Casual, sharp, warm. Talk like a knowledgeable friend who happens to know everything about nutrition — not a health coach, not a bot. Say things like "yeah that tracks" or "that's 340 cals, not bad" or "honestly just get the grilled version". Be brief. Be direct. Occasional dry humor. No asterisks. No excessive punctuation. No robotic phrasing like "I'd be happy to help" or "Great question!".
 
 YOU CAN DO THESE ACTIONS — always use the exact JSON format:
 
@@ -591,7 +585,7 @@ IMPORTANT RULES:
     reader.readAsDataURL(file);
   }
 
-  const quickReplies=["what did i eat today?","how many calories left?","what fits in 300 cals?","remove last entry"];
+  const quickReplies=["what did i eat today?","how many cals left?","what fits in 300 cals?","remove last entry"];
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 220px)",minHeight:400}}>
@@ -685,8 +679,7 @@ IMPORTANT RULES:
 // ── PROFILE ───────────────────────────────────────────────────────────────────
 function Profile({profile,goals,foods,recipes,bmr,tdee,weights,onProfile,onGoals,onFoods,onRecipes,onSaveWeight}) {
   const [section,setSection]=useState("stats");
-  const [goalsOpen,setGoalsOpen]=useState(false);
-  const [gDraft,setGDraft]=useState(goals);
+  // goals edited inline
   const [newFood,setNewFood]=useState({name:"",servingSize:100,servingUnit:"g",cal:"",protein:"",carbs:"",fat:"",fiber:"",sodium:"",sugar:"",calcium:"",iron:"",vitaminC:"",vitaminD:""});
   const [showAddFood,setShowAddFood]=useState(false);
   const bmi=profile.weight&&profile.height?+(profile.weight/Math.pow(profile.height/100,2)).toFixed(1):null;
