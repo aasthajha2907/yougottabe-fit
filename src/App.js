@@ -75,7 +75,7 @@ async function gemini(messages, system, imageB64, mimeType) {
     }
   );
   let resp = await makeReq("gemini-2.5-flash", true);
-  if(resp.status===503||resp.status===429) resp = await makeReq("gemini-2.0-flash", false);
+  if(resp.status===503||resp.status===429||resp.status===404) resp = await makeReq("gemini-2.5-flash-lite", false);
   if(!resp.ok) {
     const e=await resp.text();
     // fallback to 2.0 flash if 2.5 is overloaded
@@ -236,7 +236,14 @@ export default function App() {
       {/* content */}
       <div style={{flex:1,padding:"14px 18px 80px",overflowY:"auto"}} className="su" key={tab+viewDate}>
         {tab==="home"   && <Home totals={totals} goals={goals} log={log} viewLog={todayLog} steps={steps[viewDate]||0} water={water[viewDate]||0} tdee={tdee} isToday={isToday} viewDate={viewDate} onSteps={v=>sSt({...steps,[viewDate]:v})} onWater={v=>sWat({...water,[viewDate]:v})} onRemove={i=>sLog({...log,[viewDate]:todayLog.filter((_,idx)=>idx!==i)})} onEdit={(i,e)=>sLog({...log,[viewDate]:todayLog.map((x,idx)=>idx===i?e:x)})} streak={streak} weights={weights} onSaveWeight={sWts} profile={profile} onGoChat={()=>setTab("chat")}/>}
-        {tab==="chat"   && <Chat profile={profile} goals={goals} log={log} viewDate={viewDate} viewLog={todayLog} totals={totals} tdee={tdee} foods={foods} recipes={recipes} onAddLog={items=>sLog({...log,[viewDate]:[...todayLog,...(Array.isArray(items)?items:[items])]})} onRemoveLog={(name,qty)=>{ const idx=[...todayLog].reverse().findIndex(e=>e.name.toLowerCase().includes(name.toLowerCase())); if(idx>=0){ const ri=todayLog.length-1-idx; sLog({...log,[viewDate]:todayLog.filter((_,i)=>i!==ri)}); }}} onUpdateLog={(name,newQty)=>{ const idx=[...todayLog].reverse().findIndex(e=>e.name.toLowerCase().includes(name.toLowerCase())); if(idx>=0){ const ri=todayLog.length-1-idx; const e=todayLog[ri]; const r=newQty/(e.qty||1); sLog({...log,[viewDate]:todayLog.map((x,i)=>i===ri?{...e,qty:newQty,cal:(e.cal||0)*r,protein:(e.protein||0)*r,carbs:(e.carbs||0)*r,fat:(e.fat||0)*r,fiber:(e.fiber||0)*r}:x)}); }}} onSaveFood={f=>sFoods([...foods,{...f,id:Date.now()}])} onSaveRecipe={r=>sRecipes([...recipes,{...r,id:Date.now()}])} onUpdateFood={(id,f)=>sFoods(foods.map(x=>x.id===id?{...x,...f}:x))} onUpdateRecipe={(id,r)=>sRecipes(recipes.map(x=>x.id===id?{...x,...r}:x))}/>}
+        {tab==="chat"   && <Chat profile={profile} goals={goals} log={log} viewDate={viewDate} viewLog={todayLog} totals={totals} tdee={tdee} foods={foods} recipes={recipes} onAddLog={items=>sLog({...log,[viewDate]:[...todayLog,...(Array.isArray(items)?items:[items])]})} onRemoveLog={(name,qty=1)=>{
+            let remaining=[...todayLog];
+            for(let n=0;n<(qty||1);n++){
+              const ridx=[...remaining].reverse().findIndex(e=>e.name.toLowerCase().includes(name.toLowerCase()));
+              if(ridx>=0){ const ri=remaining.length-1-ridx; remaining=remaining.filter((_,i)=>i!==ri); }
+            }
+            sLog({...log,[viewDate]:remaining});
+          }} onUpdateLog={(name,newQty)=>{ const idx=[...todayLog].reverse().findIndex(e=>e.name.toLowerCase().includes(name.toLowerCase())); if(idx>=0){ const ri=todayLog.length-1-idx; const e=todayLog[ri]; const r=newQty/(e.qty||1); sLog({...log,[viewDate]:todayLog.map((x,i)=>i===ri?{...e,qty:newQty,cal:(e.cal||0)*r,protein:(e.protein||0)*r,carbs:(e.carbs||0)*r,fat:(e.fat||0)*r,fiber:(e.fiber||0)*r}:x)}); }}} onSaveFood={f=>sFoods([...foods,{...f,id:Date.now()}])} onSaveRecipe={r=>sRecipes([...recipes,{...r,id:Date.now()}])} onUpdateFood={(id,f)=>sFoods(foods.map(x=>x.id===id?{...x,...f}:x))} onUpdateRecipe={(id,r)=>sRecipes(recipes.map(x=>x.id===id?{...x,...r}:x))}/>}
         {tab==="profile"&& <Profile profile={profile} goals={goals} foods={foods} recipes={recipes} bmr={bmr} tdee={tdee} weights={weights} onProfile={sp} onGoals={sg} onFoods={sFoods} onRecipes={sRecipes} onSaveWeight={sWts}/>}
       </div>
     </div>
@@ -541,8 +548,9 @@ YOU CAN DO THESE ACTIONS — always use the exact JSON format:
 Respond with a brief comment then:
 |||LOG|||{"items":[{"name":"food name","qty":100,"unit":"g","meal":"Breakfast","cal":200,"protein":10,"carbs":20,"fat":5,"fiber":2,"sodium":100,"sugar":2,"calcium":0,"iron":0,"vitaminC":0,"vitaminD":0}],"message":"brief comment"}|||END|||
 
-2. REMOVE from log (most recent matching item):
-|||REMOVE|||{"name":"food name","message":"removed."}|||END|||
+2. REMOVE from log:
+|||REMOVE|||{"name":"food name","qty":1,"message":"removed."}|||END|||
+qty = exact number to remove. "remove 2 bananas" → qty:2. "remove last entry" → qty:1
 
 3. UPDATE quantity in log:
 |||UPDATE|||{"name":"food name","newQty":2,"message":"updated."}|||END|||
@@ -580,6 +588,8 @@ IMPORTANT RULES:
       let display=raw
         .replace(/\|\|\|\w+\|\|\|[\s\S]*?\|\|\|END\|\|\|/g,"")
         .replace(/\|\|\|\w+\|\|\|[\s\S]*/g,"")
+        .replace(/\*\*(.*?)\*\*/g,"$1")
+        .replace(/\*(.*?)\*/g,"$1")
         .trim();
       let parsedAction=null;
       const actionMatch=raw.match(/\|\|\|(\w+)\|\|\|([\s\S]*?)\|\|\|END\|\|\|/);
@@ -596,7 +606,7 @@ IMPORTANT RULES:
             setPending(items);
           }
           if(type==="REMOVE"&&data.name) {
-            onRemoveLog(data.name);
+            onRemoveLog(data.name, data.qty||1);
           }
           if(type==="UPDATE"&&data.name) {
             onUpdateLog(data.name,data.newQty);
