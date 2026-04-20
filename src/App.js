@@ -62,18 +62,32 @@ async function gemini(messages, system, imageB64, mimeType) {
     ...messages.slice(0,-1).map(m=>({role:m.role==="assistant"?"model":"user",parts:[{text:m.content}]})),
     {role:"user", parts}
   ];
-  const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+  // try 2.5 flash first, fall back to 2.0 flash on overload
+  const makeReq = (model, useSearch) => fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     { method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
         systemInstruction:{parts:[{text:system}]},
         contents,
-        tools:[{google_search:{}}],
+        ...(useSearch?{tools:[{google_search:{}}]}:{}),
         generationConfig:{maxOutputTokens:2000,temperature:0.7}
       })
     }
   );
-  if(!resp.ok) { const e=await resp.text(); throw new Error(e.slice(0,120)); }
+  let resp = await makeReq("gemini-2.5-flash", true);
+  if(resp.status===503||resp.status===429) resp = await makeReq("gemini-2.0-flash", false);
+  if(!resp.ok) {
+    const e=await resp.text();
+    // fallback to 2.0 flash if 2.5 is overloaded
+    if(resp.status===503||resp.status===429) {
+      const resp2=await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+        {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents,generationConfig:{maxOutputTokens:2000,temperature:0.7}})}
+      );
+      if(resp2.ok) { const d=await resp2.json(); return d.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||""; }
+    }
+    throw new Error(e.slice(0,120));
+  }
   const data = await resp.json();
   return data.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||"";
 }
@@ -125,6 +139,8 @@ function MacroPill({label,val,unit,color}) {
 export default function App() {
   const [tab, setTab] = useState("home");
   const [viewDate, setViewDate] = useState(today());
+  // migrate old keys from previous version
+  useState(()=>{ try { ["profile","goals","log","steps","water","weights","ing","rec"].forEach(k=>{ const old=localStorage.getItem("ft_"+k); if(old&&!localStorage.getItem("fp_"+k)) localStorage.setItem("fp_"+k,old); }); } catch {} });
   const [profile, setProfile] = useState(()=>L("fp_profile",{weight:"",height:"",age:"",sex:"female",activity:"moderate",name:""}));
   const [goals, setGoals] = useState(()=>L("fp_goals",{cal:1600,protein:80,carbs:160,fat:55,fiber:25,sodium:2300,steps:8000,water:8}));
   const [log, setLog] = useState(()=>L("fp_log",{}));
@@ -234,6 +250,7 @@ function Home({totals,goals,log,viewLog,steps,water,tdee,isToday,viewDate,onStep
   const [editQty,setEditQty]=useState("");
   const [newWeight,setNewWeight]=useState("");
   const [showWt,setShowWt]=useState(false);
+  const [macroDetail,setMacroDetail]=useState(null);
 
   const calPct=(totals.cal||0)/goals.cal;
   const deficit=tdee-(totals.cal||0);
@@ -318,9 +335,9 @@ function Home({totals,goals,log,viewLog,steps,water,tdee,isToday,viewDate,onStep
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {MACROS.map(m=>(
-            <div key={m.k}>
+            <div key={m.k} onClick={()=>setMacroDetail(m)} style={{cursor:"pointer"}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                <span style={{fontSize:11,color:T.sub}}>{m.label}</span>
+                <span style={{fontSize:11,color:T.blue,textDecoration:"underline",textDecorationStyle:"dotted"}}>{m.label}</span>
                 <span style={{fontSize:11,fontFamily:"monospace"}}>{Math.round(totals[m.k]||0)}{m.unit} <span style={{color:T.muted}}>/ {m.goal}{m.unit}</span></span>
               </div>
               <Bar val={totals[m.k]||0} goal={m.goal} color={m.color}/>
@@ -328,6 +345,37 @@ function Home({totals,goals,log,viewLog,steps,water,tdee,isToday,viewDate,onStep
           ))}
         </div>
       </Card>
+
+      {/* macro breakdown modal */}
+      {macroDetail&&(
+        <div onClick={()=>setMacroDetail(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:"16px 16px 0 0",padding:"20px 18px 36px",width:"100%",maxWidth:540,maxHeight:"80vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <span style={{fontSize:16,fontWeight:800,color:T.text}}>{macroDetail.label} breakdown</span>
+              <button onClick={()=>setMacroDetail(null)} style={{background:"none",border:"none",color:T.sub,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${T.border}`}}>
+              <span style={{fontSize:12,color:T.sub}}>Total</span>
+              <span style={{fontSize:20,fontWeight:800,color:macroDetail.color,fontFamily:"monospace"}}>{Math.round(totals[macroDetail.k]||0)}{macroDetail.unit}</span>
+            </div>
+            {viewLog.filter(e=>(e[macroDetail.k]||0)>0).sort((a,b)=>(b[macroDetail.k]||0)-(a[macroDetail.k]||0)).length===0&&(
+              <div style={{color:T.muted,fontSize:13,textAlign:"center",padding:20}}>nothing logged yet</div>
+            )}
+            {viewLog.filter(e=>(e[macroDetail.k]||0)>0).sort((a,b)=>(b[macroDetail.k]||0)-(a[macroDetail.k]||0)).map((e,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${T.border}`}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text}}>{e.name}</div>
+                  <div style={{fontSize:11,color:T.sub}}>{e.qty}{e.unit}{e.meal?` · ${e.meal}`:""}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:macroDetail.color,fontFamily:"monospace"}}>{Math.round((e[macroDetail.k]||0)*10)/10}{macroDetail.unit}</div>
+                  <div style={{fontSize:10,color:T.muted}}>{Math.round((e[macroDetail.k]||0)/(totals[macroDetail.k]||1)*100)}%</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* meal budget */}
       <Card>
@@ -453,6 +501,7 @@ function Chat({profile,goals,log,viewDate,viewLog,totals,tdee,foods,recipes,onAd
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
   const [pending,setPending]=useState(null);
+  const [pendingMeal,setPendingMeal]=useState(inferMeal());
   const [img,setImg]=useState(null);
   const [imgB64,setImgB64]=useState(null);
   const [imgMime,setImgMime]=useState("image/png"); // eslint-disable-line no-unused-vars
@@ -527,17 +576,19 @@ IMPORTANT RULES:
       const apiMsgs=[...newMsgs.slice(0,-1).map(m=>({role:m.role,content:m.content})),{role:"user",content:contextNote}];
       const raw=await gemini(apiMsgs,SYSTEM,imgB64,imgMime);
 
-      // parse action blocks
-      let display=raw;
+      // parse action blocks — strip ALL action syntax from display first
+      let display=raw
+        .replace(/\|\|\|\w+\|\|\|[\s\S]*?\|\|\|END\|\|\|/g,"")
+        .replace(/\|\|\|\w+\|\|\|[\s\S]*/g,"")
+        .trim();
       let parsedAction=null;
       const actionMatch=raw.match(/\|\|\|(\w+)\|\|\|([\s\S]*?)\|\|\|END\|\|\|/);
       if(actionMatch) {
         const [,type,jsonStr]=actionMatch;
-        display=raw.replace(/\|\|\|\w+\|\|\|[\s\S]*?\|\|\|END\|\|\|/g,"").trim();
         try {
           const data=JSON.parse(jsonStr.trim());
           parsedAction={type,data};
-          if(data.message) display=data.message;
+          if(data.message && data.message.trim()) display=data.message;
 
           if(type==="LOG"&&data.items?.length) {
             const meal=inferMeal();
@@ -568,9 +619,10 @@ IMPORTANT RULES:
 
   function confirmLog() {
     if(!pending) return;
-    onAddLog(pending);
-    setMsgs(p=>[...p,{role:"assistant",content:`logged ${pending.length} item${pending.length>1?"s":""}. ✓`}]);
+    onAddLog(pending.map(item=>({...item,meal:pendingMeal})));
+    setMsgs(p=>[...p,{role:"assistant",content:`logged ${pending.length} item${pending.length>1?"s":""} as ${pendingMeal}.`}]);
     setPending(null);
+    setPendingMeal(inferMeal());
   }
 
   function handleFile(file) {
@@ -629,11 +681,17 @@ IMPORTANT RULES:
             <div style={{fontSize:13,color:T.green,fontWeight:700,marginBottom:10}}>log {pending.length} item{pending.length>1?"s":""}?</div>
             {pending.map((item,i)=>(
               <div key={i} style={{fontSize:12,color:T.sub,marginBottom:4}}>
-                <span style={{color:T.text,fontWeight:600}}>{item.name}</span> {item.qty}{item.unit} · {item.meal} · <span style={{color:T.green,fontWeight:700}}>{Math.round(item.cal)} kcal</span>
+                <span style={{color:T.text,fontWeight:600}}>{item.name}</span> {item.qty}{item.unit} · <span style={{color:T.green,fontWeight:700}}>{Math.round(item.cal)} kcal</span>
               </div>
             ))}
-            <div style={{display:"flex",gap:8,marginTop:10}}>
-              <Btn variant="green" onClick={confirmLog} style={{flex:1}}>✓ log it</Btn>
+            <div style={{marginTop:10,marginBottom:10}}>
+              <select value={pendingMeal} onChange={e=>setPendingMeal(e.target.value)}
+                style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
+                {["Breakfast","Lunch","Dinner","Snack","Pre-workout","Post-workout"].map(m=><option key={m}>{m}</option>)}
+              </select>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn variant="green" onClick={confirmLog} style={{flex:1}}>log it</Btn>
               <Btn variant="ghost" onClick={()=>setPending(null)} style={{flex:1}}>skip</Btn>
             </div>
           </div>
@@ -700,9 +758,9 @@ function Profile({profile,goals,foods,recipes,bmr,tdee,weights,onProfile,onGoals
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      <div style={{display:"flex",gap:6}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
         {sections.map(s=>(
-          <button key={s.id} onClick={()=>setSection(s.id)} style={{flex:1,background:section===s.id?T.brown:T.surface,color:section===s.id?"#fff":T.sub,border:`1px solid ${section===s.id?T.brown:T.border}`,borderRadius:10,padding:"7px 0",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>{s.label}</button>
+          <button key={s.id} onClick={()=>setSection(s.id)} style={{background:section===s.id?T.brown:T.surface,color:section===s.id?"#fff":T.sub,border:`1px solid ${section===s.id?T.brown:T.border}`,borderRadius:10,padding:"9px 0",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all 0.2s"}}>{s.label}</button>
         ))}
       </div>
 
@@ -710,12 +768,12 @@ function Profile({profile,goals,foods,recipes,bmr,tdee,weights,onProfile,onGoals
         <>
           <Card>
             <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:14}}>Body Stats</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,width:"100%",minWidth:0}}>
               {[["name","Name","text","e.g. Aastha"],["weight","Weight (kg)","number","65"],["height","Height (cm)","number","162"],["age","Age","number","25"]].map(([k,l,t,ph])=>(
-                <label key={k} style={{display:"flex",flexDirection:"column",gap:4}}>
+                <label key={k} style={{display:"flex",flexDirection:"column",gap:4,minWidth:0}}>
                   <span style={{fontSize:10,color:T.sub,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>{l}</span>
                   <input type={t} value={profile[k]||""} onChange={e=>onProfile(k,t==="number"?+e.target.value:e.target.value)} placeholder={ph}
-                    style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+                    style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 10px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"}}/>
                 </label>
               ))}
               <label style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -764,12 +822,12 @@ function Profile({profile,goals,foods,recipes,bmr,tdee,weights,onProfile,onGoals
       {section==="goals"&&(
         <Card>
           <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:14}}>Daily Goals</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,width:"100%",minWidth:0}}>
             {[["cal","Calories (kcal)"],["protein","Protein (g)"],["carbs","Carbs (g)"],["fat","Fat (g)"],["fiber","Fiber (g)"],["sodium","Sodium (mg)"],["steps","Steps"],["water","Water (glasses)"]].map(([k,l])=>(
-              <label key={k} style={{display:"flex",flexDirection:"column",gap:4}}>
+              <label key={k} style={{display:"flex",flexDirection:"column",gap:4,minWidth:0}}>
                 <span style={{fontSize:10,color:T.sub,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}>{l}</span>
                 <input type="number" value={goals[k]||""} onChange={e=>onGoals({...goals,[k]:+e.target.value})}
-                  style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 12px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+                  style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"9px 10px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",boxSizing:"border-box"}}/>
               </label>
             ))}
           </div>
