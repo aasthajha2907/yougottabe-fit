@@ -555,8 +555,8 @@ PERSONALITY: Casual, sharp, warm. Talk like a knowledgeable friend who happens t
 YOU CAN DO THESE ACTIONS — always use the exact JSON format:
 
 1. LOG FOOD (when user mentions eating something):
-Respond with a brief comment then:
-|||LOG|||{"items":[{"name":"food name","qty":100,"unit":"g","meal":"Breakfast","cal":200,"protein":10,"carbs":20,"fat":5,"fiber":2,"sodium":100,"sugar":2,"calcium":0,"iron":0,"vitaminC":0,"vitaminD":0}],"message":"brief comment"}|||END|||
+|||LOG|||{"items":[{"name":"food name","qty":100,"unit":"g","meal":"Breakfast","cal":200,"protein":10,"carbs":20,"fat":5,"fiber":2,"sodium":100,"sugar":2,"calcium":0,"iron":0,"vitaminC":0,"vitaminD":0}],"message":"brief comment about the food"}|||END|||
+IMPORTANT: The message field is shown BEFORE the user confirms. Do NOT say "logged" or "added" — say something like "that's 340 cals" or "noted, mostly carbs" since they still need to confirm.
 
 2. REMOVE from log (supports partial removal):
 |||REMOVE|||{"name":"food name","qty":2,"unit":"medium","message":"removed 2 bananas."}|||END|||
@@ -593,7 +593,8 @@ IMPORTANT RULES:
     setInput(""); setImg(null); setImgB64(null);
     setLoading(true);
     try {
-      const apiMsgs=[...newMsgs.slice(0,-1).map(m=>({role:m.role,content:m.content})),{role:"user",content:contextNote}];
+      const historyMsgs=newMsgs.slice(0,-1).slice(-12); // keep last 12 messages for context
+      const apiMsgs=[...historyMsgs.map(m=>({role:m.role,content:m.content})),{role:"user",content:contextNote}];
       const raw=await gemini(apiMsgs,SYSTEM,imgB64,imgMime);
 
       // parse action blocks — strip ALL action syntax from display first
@@ -613,9 +614,11 @@ IMPORTANT RULES:
           if(data.message && data.message.trim()) display=data.message;
 
           if(type==="LOG"&&data.items?.length) {
-            const meal=inferMeal();
+            const meal=inferMeal(); // fresh call at action time
             const items=data.items.map(i=>({...i,meal:i.meal||meal}));
             setPending(items);
+            setPendingMeal(meal); // always use current time for default meal
+            if(data.message) display=data.message;
           }
           if(type==="REMOVE"&&data.name) {
             onRemoveLog(data.name, data.qty||1, data.unit);
@@ -678,16 +681,7 @@ IMPORTANT RULES:
             }}>
               {m.img&&<img src={m.img} alt="" style={{width:"100%",maxHeight:160,objectFit:"cover",borderRadius:8,marginBottom:8}}/>}
               {m.content}
-              {m.action?.type==="LOG"&&m.action?.data?.items&&(
-                <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${m.role==="user"?"#ffffff33":T.border}`}}>
-                  {m.action.data.items.map((item,j)=>(
-                    <div key={j} style={{fontSize:11,color:m.role==="user"?"#ffffff99":T.sub,marginBottom:2}}>
-                      <span style={{color:m.role==="user"?"#fff":T.text,fontWeight:600}}>{item.name}</span> {item.qty}{item.unit} · <span style={{color:T.accent,fontWeight:700}}>{Math.round(item.cal)} kcal</span>
-                    </div>
-                  ))}
-                  <div style={{fontSize:12,fontWeight:700,color:T.accent,marginTop:4}}>total: {Math.round(m.action.data.items.reduce((a,x)=>a+(x.cal||0),0))} kcal</div>
-                </div>
-              )}
+
             </div>
           </div>
         ))}
@@ -698,28 +692,31 @@ IMPORTANT RULES:
             </div>
           </div>
         )}
-        {pending&&(
-          <div style={{background:T.greenBg,border:`1px solid ${T.green}44`,borderRadius:12,padding:14}} className="pop">
-            <div style={{fontSize:13,color:T.green,fontWeight:700,marginBottom:10}}>log {pending.length} item{pending.length>1?"s":""}?</div>
-            {pending.map((item,i)=>(
-              <div key={i} style={{fontSize:12,color:T.sub,marginBottom:4}}>
-                <span style={{color:T.text,fontWeight:600}}>{item.name}</span> {item.qty}{item.unit} · <span style={{color:T.green,fontWeight:700}}>{Math.round(item.cal)} kcal</span>
-              </div>
-            ))}
-            <div style={{marginTop:10,marginBottom:10}}>
-              <select value={pendingMeal} onChange={e=>setPendingMeal(e.target.value)}
-                style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
-                {["Breakfast","Lunch","Dinner","Snack","Pre-workout","Post-workout"].map(m=><option key={m}>{m}</option>)}
-              </select>
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <Btn variant="green" onClick={confirmLog} style={{flex:1}}>log it</Btn>
-              <Btn variant="ghost" onClick={()=>setPending(null)} style={{flex:1}}>skip</Btn>
-            </div>
-          </div>
-        )}
         <div ref={bottomRef}/>
       </div>
+
+      {/* confirm popup — lives outside scroll so it's always visible */}
+      {pending&&(
+        <div style={{background:T.greenBg,border:`2px solid ${T.green}`,borderRadius:12,padding:14,marginBottom:8}} className="pop">
+          <div style={{fontSize:11,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>confirm before logging</div>
+          <div style={{fontSize:14,color:T.green,fontWeight:800,marginBottom:8}}>log {pending.length} item{pending.length>1?"s":""}?</div>
+          {pending.map((item,i)=>(
+            <div key={i} style={{fontSize:12,color:T.sub,marginBottom:3}}>
+              <span style={{color:T.text,fontWeight:600}}>{item.name}</span> {item.qty}{item.unit} · <span style={{color:T.green,fontWeight:700}}>{Math.round(item.cal)} kcal</span>
+            </div>
+          ))}
+          <div style={{marginTop:10,marginBottom:10}}>
+            <select value={pendingMeal} onChange={e=>setPendingMeal(e.target.value)}
+              style={{width:"100%",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"8px 12px",color:T.text,fontSize:13,outline:"none",fontFamily:"inherit"}}>
+              {["Breakfast","Lunch","Dinner","Snack","Pre-workout","Post-workout"].map(m=><option key={m}>{m}</option>)}
+            </select>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn variant="green" onClick={confirmLog} style={{flex:1}}>log it</Btn>
+            <Btn variant="ghost" onClick={()=>setPending(null)} style={{flex:1}}>skip</Btn>
+          </div>
+        </div>
+      )}
 
       {/* image preview */}
       {img&&(
