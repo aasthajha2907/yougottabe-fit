@@ -51,45 +51,87 @@ function inferMeal() {
 }
 
 // ── Gemini ────────────────────────────────────────────────────────────────────
-async function gemini(messages, system, imageB64, mimeType) {
-  const key = process.env.REACT_APP_GEMINI_KEY;
-  if(!key) throw new Error("no API key");
-  const parts = [];
-  if(imageB64) parts.push({inline_data:{mime_type:mimeType||"image/png",data:imageB64}});
-  const lastMsg = messages[messages.length-1];
-  parts.push({text: lastMsg.content});
-  const contents = [
-    ...messages.slice(0,-1).map(m=>({role:m.role==="assistant"?"model":"user",parts:[{text:m.content}]})),
-    {role:"user", parts}
-  ];
-  // try 2.5 flash first, fall back to 2.0 flash on overload
-  const makeReq = (model, useSearch) => fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-    { method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        systemInstruction:{parts:[{text:system}]},
-        contents,
-        ...(useSearch?{tools:[{google_search:{}}]}:{}),
-        generationConfig:{maxOutputTokens:2000,temperature:0.7}
-      })
+// Claude tool definitions
+const TOOLS = [
+  {
+    name: "log_food",
+    description: "Log food items to the user food diary. Call this whenever the user mentions eating or drinking anything.",
+    input_schema: {
+      type: "object",
+      properties: {
+        items: { type: "array", items: { type: "object", properties: {
+          name:    {type:"string"}, qty:     {type:"number"}, unit:    {type:"string"},
+          meal:    {type:"string"}, cal:     {type:"number"}, protein: {type:"number"},
+          carbs:   {type:"number"}, fat:     {type:"number"}, fiber:   {type:"number"},
+          sodium:  {type:"number"}, sugar:   {type:"number"}
+        }, required:["name","qty","unit","cal","protein","carbs","fat","fiber"]}},
+        message: {type:"string", description:"Brief natural comment shown to user before they confirm"}
+      }, required:["items","message"]
     }
-  );
-  let resp = await makeReq("gemini-2.5-flash", true);
-  if(resp.status===503||resp.status===429||resp.status===404) resp = await makeReq("gemini-2.5-flash-lite", false);
-  if(!resp.ok) {
-    const e=await resp.text();
-    // fallback to 2.0 flash if 2.5 is overloaded
-    if(resp.status===503||resp.status===429) {
-      const resp2=await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-        {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents,generationConfig:{maxOutputTokens:2000,temperature:0.7}})}
-      );
-      if(resp2.ok) { const d=await resp2.json(); return d.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||""; }
-    }
-    throw new Error(e.slice(0,120));
+  },
+  {
+    name: "remove_food",
+    description: "Remove food from the log. qty = how many to remove (supports partial removal).",
+    input_schema: { type:"object", properties: {
+      name: {type:"string"}, qty: {type:"number"}, message: {type:"string"}
+    }, required:["name","message"]}
+  },
+  {
+    name: "save_food",
+    description: "Save a food to the user library for future use.",
+    input_schema: { type:"object", properties: {
+      name:{type:"string"}, servingSize:{type:"number"}, servingUnit:{type:"string"},
+      cal:{type:"number"}, protein:{type:"number"}, carbs:{type:"number"}, fat:{type:"number"},
+      fiber:{type:"number"}, sodium:{type:"number"}, sugar:{type:"number"}, message:{type:"string"}
+    }, required:["name","servingSize","servingUnit","cal","protein","carbs","fat","message"]}
+  },
+  {
+    name: "save_recipe",
+    description: "Save a recipe with full ingredient list and per-serving macros.",
+    input_schema: { type:"object", properties: {
+      name:{type:"string"}, yield:{type:"number"}, yieldUnit:{type:"string"},
+      steps:{type:"string"},
+      ingredients:{type:"array", items:{type:"object", properties:{
+        name:{type:"string"},qty:{type:"number"},unit:{type:"string"},
+        cal:{type:"number"},protein:{type:"number"},carbs:{type:"number"},fat:{type:"number"},fiber:{type:"number"}
+      }, required:["name","qty","unit","cal","protein","carbs","fat"]}},
+      cal:{type:"number"}, protein:{type:"number"}, carbs:{type:"number"},
+      fat:{type:"number"}, fiber:{type:"number"}, sodium:{type:"number"}, message:{type:"string"}
+    }, required:["name","yield","yieldUnit","cal","protein","carbs","fat","message"]}
   }
+];
+
+async function callClaude(messages, system, imageB64, mimeType) {
+  const apiMessages = messages.map((m, i) => {
+    if(m.role === "user" && imageB64 && i === messages.length - 1) {
+      return { role:"user", content:[
+        {type:"image", source:{type:"base64", media_type:mimeType||"image/png", data:imageB64}},
+        {type:"text", text:m.content}
+      ]};
+    }
+    return {role: m.role === "assistant" ? "assistant" : "user", content: m.content};
+  });
+
+  const resp = await fetch('/api/chat', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 2000,
+      system,
+      tools: TOOLS,
+      messages: apiMessages,
+    })
+  });
+
+  if(!resp.ok) throw new Error((await resp.text()).slice(0, 120));
   const data = await resp.json();
-  return data.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||"";
+  const textBlock = data.content?.find(b => b.type === 'text');
+  const toolBlock = data.content?.find(b => b.type === 'tool_use');
+  return JSON.stringify({
+    fnCall: toolBlock ? {name: toolBlock.name, args: toolBlock.input} : null,
+    text: textBlock?.text || ''
+  });
 }
 
 // ── tiny components ───────────────────────────────────────────────────────────
@@ -548,41 +590,18 @@ SAVED FOODS: ${savedFoodsList}
 SAVED RECIPES: ${recipeList}`;
   },[profile,goals,totals,viewLog,viewDate,tdee,foods,recipes]);
 
-  const SYSTEM=`You are a friendly, knowledgeable nutrition assistant built into a fitness tracking app. You have access to Google Search for looking up current nutrition info, ingredient lists, and product details.
+  const SYSTEM=`You are a sharp, warm nutrition assistant inside a fitness tracking app. You know food, macros, Indian cooking, and how to keep someone on track without being annoying about it.
 
-PERSONALITY: Casual, sharp, warm. Talk like a knowledgeable friend who happens to know everything about nutrition — not a health coach, not a bot. Say things like "yeah that tracks" or "that's 340 cals, not bad" or "honestly just get the grilled version". Be brief. Be direct. Occasional dry humor. No asterisks. No excessive punctuation. No robotic phrasing like "I'd be happy to help" or "Great question!".
+PERSONALITY: Talk like a knowledgeable friend. Casual, direct, occasionally dry. "that's 340 cals, not bad" not "Great choice! I have logged your food." No asterisks. No markdown. Keep responses short.
 
-YOU CAN DO THESE ACTIONS — always use the exact JSON format:
+TOOLS — use them automatically, no need to announce it:
+- log_food: any time the user mentions eating or drinking. Always include fiber (oats 60g=5g, chia 20g=7g, banana=2.6g, rice 130g=1.5g, roti=2g, dal=4g). Infer meal from time of day if not stated.
+- remove_food: when user wants to remove something. qty = exact amount to remove.
+- save_food: when user asks to save something to their library.
+- save_recipe: when user describes a full recipe to save. Calculate per-serving macros.
 
-1. LOG FOOD (when user mentions eating something):
-|||LOG|||{"items":[{"name":"food name","qty":100,"unit":"g","meal":"Breakfast","cal":200,"protein":10,"carbs":20,"fat":5,"fiber":2,"sodium":100,"sugar":2,"calcium":0,"iron":0,"vitaminC":0,"vitaminD":0}],"message":"brief comment about the food"}|||END|||
-IMPORTANT: The message field is shown BEFORE the user confirms. Do NOT say "logged" or "added" — say something like "that's 340 cals" or "noted, mostly carbs" since they still need to confirm.
-
-2. REMOVE from log (supports partial removal):
-|||REMOVE|||{"name":"food name","qty":2,"unit":"medium","message":"removed 2 bananas."}|||END|||
-- qty = how many to remove (units, grams, etc — match what the user says)
-- "remove 2 bananas" from a logged "3 bananas" entry → qty:2, I will subtract and update
-- "remove last entry" → qty of whatever the last entry was (full removal)
-
-3. UPDATE quantity in log:
-|||UPDATE|||{"name":"food name","newQty":2,"message":"updated."}|||END|||
-
-4. SAVE FOOD to library:
-|||SAVEFOOD|||{"name":"food name","servingSize":100,"servingUnit":"g","cal":200,"protein":10,"carbs":20,"fat":5,"fiber":2,"sodium":100,"sugar":0,"calcium":0,"iron":0,"vitaminC":0,"vitaminD":0,"message":"saved to your library."}|||END|||
-
-5. SAVE RECIPE:
-|||SAVERECIPE|||{"name":"recipe name","yield":4,"yieldUnit":"serving","steps":"method","ingredients":[{"name":"ing","qty":100,"unit":"g","cal":100,"protein":5,"carbs":10,"fat":3}],"cal":250,"protein":15,"carbs":30,"fat":8,"fiber":3,"sodium":200,"message":"recipe saved."}|||END|||
-
-IMPORTANT RULES:
-- When user logs food, ALWAYS include the LOG action. Never skip it.
-- Use Google Search when asked about specific branded products, restaurants, or recent nutrition info.
-- If an image is provided, analyze it thoroughly — read nutrition labels precisely, identify food items, extract all data.
-- Infer meal type from time of day if not specified. Current time context is provided.
-- For "remove 1 bread" — remove exactly 1 (the most recent bread entry).
-- For updating recipes — if user says "change ingredient X to Y in my recipe", update the full recipe and use SAVERECIPE with the same name to overwrite.
-- Indian foods: you know dal, roti, sabzi, biryani, chai, idli, dosa macros well.
-- Be conversational. If user asks a question, just answer it. Only use action blocks when an action is needed.
-- The message field in JSON is shown to the user as your response. Keep it natural.`;
+The message field in your tool call is what the user sees. Make it sound like you, not a bot.
+For plain questions — just answer. No tool needed.`;
 
   async function send() {
     if((!input.trim()&&!img)||loading) return;
@@ -595,46 +614,44 @@ IMPORTANT RULES:
     try {
       const historyMsgs=newMsgs.slice(0,-1).slice(-12); // keep last 12 messages for context
       const apiMsgs=[...historyMsgs.map(m=>({role:m.role,content:m.content})),{role:"user",content:contextNote}];
-      const raw=await gemini(apiMsgs,SYSTEM,imgB64,imgMime);
-
-      // parse action blocks — strip ALL action syntax from display first
-      let display=raw
-        .replace(/\|\|\|\w+\|\|\|[\s\S]*?\|\|\|END\|\|\|/g,"")
-        .replace(/\|\|\|\w+\|\|\|[\s\S]*/g,"")
+      const raw=await callClaude(apiMsgs,SYSTEM,imgB64,imgMime);
+      let parsed; try { parsed=JSON.parse(raw); } catch { parsed={text:raw,fnCall:null}; }
+      const {fnCall, text} = parsed;
+      let display = (text||"")
         .replace(/\*\*(.*?)\*\*/g,"$1")
         .replace(/\*(.*?)\*/g,"$1")
         .trim();
       let parsedAction=null;
-      const actionMatch=raw.match(/\|\|\|(\w+)\|\|\|([\s\S]*?)\|\|\|END\|\|\|/);
-      if(actionMatch) {
-        const [,type,jsonStr]=actionMatch;
-        try {
-          const data=JSON.parse(jsonStr.trim());
-          parsedAction={type,data};
-          if(data.message && data.message.trim()) display=data.message;
 
-          if(type==="LOG"&&data.items?.length) {
-            const meal=inferMeal(); // fresh call at action time
-            const items=data.items.map(i=>({...i,meal:i.meal||meal}));
-            setPending(items);
-            setPendingMeal(meal); // always use current time for default meal
-            if(data.message) display=data.message;
-          }
-          if(type==="REMOVE"&&data.name) {
-            onRemoveLog(data.name, data.qty||1, data.unit);
-          }
-          if(type==="UPDATE"&&data.name) {
-            onUpdateLog(data.name,data.newQty);
-          }
-          if(type==="SAVEFOOD"&&data.name) {
-            onSaveFood(data);
-          }
-          if(type==="SAVERECIPE"&&data.name) {
-            onSaveRecipe(data);
-          }
-        } catch(e) { console.error("parse error",e,jsonStr); }
+      if(fnCall?.name) {
+        const d=fnCall.args||{};
+        if(d.message) display=d.message;
+
+        if(fnCall.name==="log_food"&&d.items?.length) {
+          const meal=inferMeal();
+          const items=d.items.map(i=>({...i,
+            meal:i.meal||meal,
+            fiber:i.fiber||0,sodium:i.sodium||0,sugar:i.sugar||0,
+            calcium:0,iron:0,vitaminC:0,vitaminD:0
+          }));
+          setPending(items);
+          setPendingMeal(meal);
+          parsedAction={type:"LOG",data:{items,message:d.message}};
+        }
+        if(fnCall.name==="remove_food"&&d.name) {
+          onRemoveLog(d.name, d.qty||1);
+          parsedAction={type:"REMOVE",data:d};
+        }
+        if(fnCall.name==="save_food"&&d.name) {
+          onSaveFood({...d,id:Date.now()});
+          parsedAction={type:"SAVEFOOD",data:d};
+        }
+        if(fnCall.name==="save_recipe"&&d.name) {
+          onSaveRecipe({...d,id:Date.now()});
+          parsedAction={type:"SAVERECIPE",data:d};
+        }
       }
-      if(!display||display.length<2) display="done.";
+      if(!display||display.length<2) display=fnCall?.name?"done.":"hmm, try again.";
       setMsgs(p=>[...p,{role:"assistant",content:display,action:parsedAction}]);
     } catch(e) {
       setMsgs(p=>[...p,{role:"assistant",content:`something went wrong: ${e.message?.slice(0,80)}`}]);
