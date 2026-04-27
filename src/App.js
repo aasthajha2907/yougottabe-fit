@@ -559,7 +559,9 @@ function QuickTrack({icon,label,value,goal,color,unit,onSave,sub}) {
 
 // ── CHAT ──────────────────────────────────────────────────────────────────────
 function Chat({msgs,onMsgs,profile,goals,log,viewDate,viewLog,totals,tdee,foods,recipes,onAddLog,onRemoveLog,onUpdateLog,onSaveFood,onSaveRecipe,onUpdateFood,onUpdateRecipe}) {
-  const setMsgs = v => onMsgs(typeof v === 'function' ? v(msgs) : v);
+  const msgsRef = useRef(msgs);
+  msgsRef.current = msgs;
+  const setMsgs = v => onMsgs(typeof v === 'function' ? v(msgsRef.current) : v);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
   const [pending,setPending]=useState(null);
