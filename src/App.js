@@ -192,6 +192,9 @@ export default function App() {
   const [foods, setFoods] = useState(()=>L("fp_foods",[]));
   const [recipes, setRecipes] = useState(()=>L("fp_recipes",[]));
 
+  const [msgs,setMsgs]=useState(()=>L("fp_chat",[{role:"assistant",content:`Hey${profile.name?" "+profile.name:""}! What did you eat? I can log food, look up nutrition, read photos, manage your recipes — just talk to me.`}]));
+  const sMsgs=v=>{ setMsgs(v); S("fp_chat",v); };
+
   const sp=(k,v)=>{ const n={...profile,[k]:v}; setProfile(n); S("fp_profile",n); };
   const sg=v=>{ setGoals(v); S("fp_goals",v); };
   const sLog=v=>{ setLog(v); S("fp_log",v); };
@@ -278,7 +281,7 @@ export default function App() {
       {/* content */}
       <div style={{flex:1,padding:"14px 18px 80px",overflowY:"auto"}} className="su" key={tab+viewDate}>
         {tab==="home"   && <Home totals={totals} goals={goals} log={log} viewLog={todayLog} steps={steps[viewDate]||0} water={water[viewDate]||0} tdee={tdee} isToday={isToday} viewDate={viewDate} onSteps={v=>sSt({...steps,[viewDate]:v})} onWater={v=>sWat({...water,[viewDate]:v})} onRemove={i=>sLog({...log,[viewDate]:todayLog.filter((_,idx)=>idx!==i)})} onEdit={(i,e)=>sLog({...log,[viewDate]:todayLog.map((x,idx)=>idx===i?e:x)})} streak={streak} weights={weights} onSaveWeight={sWts} profile={profile} onGoChat={()=>setTab("chat")}/>}
-        {tab==="chat"   && <Chat profile={profile} goals={goals} log={log} viewDate={viewDate} viewLog={todayLog} totals={totals} tdee={tdee} foods={foods} recipes={recipes} onAddLog={items=>sLog({...log,[viewDate]:[...todayLog,...(Array.isArray(items)?items:[items])]})} onRemoveLog={(name,removeQty=1)=>{
+        {tab==="chat"   && <Chat msgs={msgs} onMsgs={sMsgs} profile={profile} goals={goals} log={log} viewDate={viewDate} viewLog={todayLog} totals={totals} tdee={tdee} foods={foods} recipes={recipes} onAddLog={items=>sLog({...log,[viewDate]:[...todayLog,...(Array.isArray(items)?items:[items])]})} onRemoveLog={(name,removeQty=1)=>{
             const idx=[...todayLog].map((e,i)=>({e,i})).reverse().find(({e})=>e.name.toLowerCase().includes(name.toLowerCase()));
             if(!idx) return;
             const entry=idx.e; const ri=idx.i;
@@ -555,8 +558,8 @@ function QuickTrack({icon,label,value,goal,color,unit,onSave,sub}) {
 }
 
 // ── CHAT ──────────────────────────────────────────────────────────────────────
-function Chat({profile,goals,log,viewDate,viewLog,totals,tdee,foods,recipes,onAddLog,onRemoveLog,onUpdateLog,onSaveFood,onSaveRecipe,onUpdateFood,onUpdateRecipe}) {
-  const [msgs,setMsgs]=useState(()=>L(`fc_chat_${viewDate}`,[{role:"assistant",content:`Hey${profile.name?` ${profile.name}`:""}! What did you eat? I can log food, look up nutrition, read photos, manage your recipes — just talk to me.`}]));
+function Chat({msgs,onMsgs,profile,goals,log,viewDate,viewLog,totals,tdee,foods,recipes,onAddLog,onRemoveLog,onUpdateLog,onSaveFood,onSaveRecipe,onUpdateFood,onUpdateRecipe}) {
+  const setMsgs = v => onMsgs(typeof v === 'function' ? v(msgs) : v);
   const [input,setInput]=useState("");
   const [loading,setLoading]=useState(false);
   const [pending,setPending]=useState(null);
@@ -567,7 +570,7 @@ function Chat({profile,goals,log,viewDate,viewLog,totals,tdee,foods,recipes,onAd
   const fileRef=useRef();
   const bottomRef=useRef();
 
-  useEffect(()=>{ S(`fc_chat_${viewDate}`,msgs); },[msgs,viewDate]);
+
   useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs,loading,pending]);
 
   const buildContext = useCallback(()=>{
