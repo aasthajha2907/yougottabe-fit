@@ -775,6 +775,230 @@ For plain questions — just answer. No tool needed.`;
   );
 }
 
+
+// ── RECIPES PANEL ─────────────────────────────────────────────────────────────
+function RecipesPanel({recipes, onRecipes}) {
+  const [expanded, setExpanded] = useState(null);
+  const [editing, setEditing] = useState(null); // recipe id being edited
+  const [editDraft, setEditDraft] = useState(null);
+  const UNITS = ["g","ml","oz","piece","tbsp","tsp","cup","katori","roti","bowl","slice","scoop"];
+
+  function startEdit(r) {
+    setEditDraft({
+      ...r,
+      ingredients: (r.ingredients||[]).map(i=>({...i,
+        qty:String(i.qty||""), cal:String(i.cal||""), protein:String(i.protein||""),
+        carbs:String(i.carbs||""), fat:String(i.fat||""), fiber:String(i.fiber||"")
+      }))
+    });
+    setEditing(r.id);
+    setExpanded(r.id);
+  }
+
+  function updateIng(i, k, v) {
+    const ings = [...editDraft.ingredients];
+    ings[i] = {...ings[i], [k]:v};
+    // recalculate totals from ingredients
+    const totals = ings.reduce((a,ing)=>({
+      cal: a.cal+(parseFloat(ing.cal)||0),
+      protein: a.protein+(parseFloat(ing.protein)||0),
+      carbs: a.carbs+(parseFloat(ing.carbs)||0),
+      fat: a.fat+(parseFloat(ing.fat)||0),
+      fiber: a.fiber+(parseFloat(ing.fiber)||0),
+    }), {cal:0,protein:0,carbs:0,fat:0,fiber:0});
+    const yld = parseFloat(editDraft.yield)||1;
+    setEditDraft(d=>({...d, ingredients:ings,
+      cal:+(totals.cal/yld).toFixed(1), protein:+(totals.protein/yld).toFixed(1),
+      carbs:+(totals.carbs/yld).toFixed(1), fat:+(totals.fat/yld).toFixed(1),
+      fiber:+(totals.fiber/yld).toFixed(1)
+    }));
+  }
+
+  function addIng() {
+    setEditDraft(d=>({...d, ingredients:[...d.ingredients, {name:"",qty:"",unit:"g",cal:"",protein:"",carbs:"",fat:"",fiber:""}]}));
+  }
+
+  function removeIng(i) {
+    const ings = editDraft.ingredients.filter((_,idx)=>idx!==i);
+    setEditDraft(d=>({...d, ingredients:ings}));
+  }
+
+  function saveEdit() {
+    const updated = {...editDraft,
+      yield: parseFloat(editDraft.yield)||1,
+      ingredients: editDraft.ingredients.map(i=>({...i,
+        qty:parseFloat(i.qty)||0, cal:parseFloat(i.cal)||0, protein:parseFloat(i.protein)||0,
+        carbs:parseFloat(i.carbs)||0, fat:parseFloat(i.fat)||0, fiber:parseFloat(i.fiber)||0
+      }))
+    };
+    onRecipes(recipes.map(r=>r.id===editing?updated:r));
+    setEditing(null);
+    setEditDraft(null);
+  }
+
+  const inputStyle = {background:T.bg, border:`1px solid ${T.border}`, borderRadius:7,
+    padding:"6px 8px", color:T.text, fontSize:12, outline:"none", fontFamily:"inherit",
+    width:"100%", boxSizing:"border-box"};
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{fontSize:12,color:T.sub,background:T.accentBg,borderRadius:10,padding:"10px 14px"}}>
+        Ask the chat to save a recipe — "save my dal tadka recipe: 200g dal, 1 tbsp ghee, yields 4 servings" and it'll calculate macros automatically.
+      </div>
+      {recipes.length===0&&<div style={{textAlign:"center",color:T.muted,fontSize:13,padding:30}}>no saved recipes yet.</div>}
+      {recipes.map(r=>(
+        <Card key={r.id} style={{padding:0,overflow:"hidden"}}>
+          {/* header — always visible */}
+          <div onClick={()=>setExpanded(p=>p===r.id?null:r.id)}
+            style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 16px",cursor:"pointer"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:700,color:T.text}}>{r.name}</div>
+              <div style={{fontSize:11,color:T.sub,marginTop:2}}>
+                {Math.round(r.cal||0)} kcal · P:{Math.round(r.protein||0)}g C:{Math.round(r.carbs||0)}g F:{Math.round(r.fat||0)}g
+                <span style={{color:T.muted}}> · per {r.yieldUnit||"serving"}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+              <span style={{fontSize:11,color:T.sub}}>{expanded===r.id?"▲":"▼"}</span>
+            </div>
+          </div>
+
+          {/* expanded view */}
+          {expanded===r.id&&(
+            <div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px"}}>
+              {editing===r.id ? (
+                /* EDIT MODE */
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  {/* name + yield */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 80px 80px",gap:8}}>
+                    <div>
+                      <div style={{fontSize:10,color:T.sub,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>Name</div>
+                      <input value={editDraft.name} onChange={e=>setEditDraft(d=>({...d,name:e.target.value}))} style={inputStyle}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:T.sub,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>Yield</div>
+                      <input type="number" value={editDraft.yield} onChange={e=>setEditDraft(d=>({...d,yield:e.target.value}))} style={inputStyle}/>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:T.sub,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>Unit</div>
+                      <select value={editDraft.yieldUnit||"serving"} onChange={e=>setEditDraft(d=>({...d,yieldUnit:e.target.value}))}
+                        style={{...inputStyle,padding:"6px 6px"}}>
+                        {["serving","g","ml","piece","bowl","katori","roti","cup","slice"].map(u=><option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* ingredients */}
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Ingredients</div>
+                    {editDraft.ingredients.map((ing,i)=>(
+                      <div key={i} style={{marginBottom:10,padding:10,background:T.bg,borderRadius:8,border:`1px solid ${T.border}`}}>
+                        <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"center"}}>
+                          <input value={ing.name} onChange={e=>updateIng(i,"name",e.target.value)} placeholder="ingredient"
+                            style={{...inputStyle,flex:1}}/>
+                          <button onClick={()=>removeIng(i)}
+                            style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:18,flexShrink:0,lineHeight:1}}>×</button>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr",gap:6,marginBottom:6}}>
+                          <input type="number" value={ing.qty} onChange={e=>updateIng(i,"qty",e.target.value)} placeholder="qty"
+                            style={inputStyle}/>
+                          <select value={ing.unit} onChange={e=>updateIng(i,"unit",e.target.value)}
+                            style={{...inputStyle,padding:"6px 6px"}}>
+                            {UNITS.map(u=><option key={u}>{u}</option>)}
+                          </select>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:4}}>
+                          {[["cal","kcal"],["protein","P"],["carbs","C"],["fat","F"],["fiber","Fib"]].map(([k,l])=>(
+                            <input key={k} type="number" value={ing[k]} onChange={e=>updateIng(i,k,e.target.value)} placeholder={l}
+                              style={{...inputStyle,textAlign:"center",padding:"5px 4px",fontSize:11}}/>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <button onClick={addIng}
+                      style={{width:"100%",background:T.brownBg,border:`1px dashed ${T.brown}`,borderRadius:8,
+                        color:T.brown,fontSize:12,fontWeight:700,cursor:"pointer",padding:"8px",fontFamily:"inherit"}}>
+                      + add ingredient
+                    </button>
+                  </div>
+
+                  {/* steps */}
+                  <div>
+                    <div style={{fontSize:10,color:T.sub,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>Method (optional)</div>
+                    <textarea value={editDraft.steps||""} onChange={e=>setEditDraft(d=>({...d,steps:e.target.value}))}
+                      placeholder="how to make it..."
+                      style={{...inputStyle,minHeight:80,resize:"vertical",lineHeight:1.5}}/>
+                  </div>
+
+                  {/* per serving preview */}
+                  <div style={{background:T.greenBg,borderRadius:8,padding:"10px 12px",border:`1px solid ${T.green}33`}}>
+                    <div style={{fontSize:10,color:T.green,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>per serving (auto-calculated)</div>
+                    <div style={{display:"flex",gap:12,fontSize:12,fontFamily:"monospace"}}>
+                      <span style={{color:T.accent,fontWeight:700}}>{Math.round(editDraft.cal||0)} kcal</span>
+                      <span>P:{Math.round(editDraft.protein||0)}g</span>
+                      <span>C:{Math.round(editDraft.carbs||0)}g</span>
+                      <span>F:{Math.round(editDraft.fat||0)}g</span>
+                      <span>Fib:{Math.round(editDraft.fiber||0)}g</span>
+                    </div>
+                  </div>
+
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn variant="accent" full onClick={saveEdit}>Save changes</Btn>
+                    <Btn variant="ghost" onClick={()=>{setEditing(null);setEditDraft(null);}}>Cancel</Btn>
+                  </div>
+                </div>
+              ) : (
+                /* VIEW MODE */
+                <div>
+                  {/* ingredients list */}
+                  {r.ingredients?.length>0&&(
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Ingredients</div>
+                      {r.ingredients.map((ing,i)=>(
+                        <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${T.border}`,fontSize:12}}>
+                          <span style={{color:T.text,fontWeight:500}}>{ing.name}</span>
+                          <span style={{color:T.sub,fontFamily:"monospace"}}>{ing.qty}{ing.unit} · {Math.round(ing.cal||0)} kcal</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* yield info */}
+                  <div style={{display:"flex",gap:8,marginBottom:12}}>
+                    <div style={{background:T.accentBg,borderRadius:8,padding:"8px 12px",flex:1,textAlign:"center"}}>
+                      <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1}}>Yield</div>
+                      <div style={{fontSize:16,fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{r.yield} {r.yieldUnit}{r.yield>1?"s":""}</div>
+                    </div>
+                    <div style={{background:T.brownBg,borderRadius:8,padding:"8px 12px",flex:1,textAlign:"center"}}>
+                      <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1}}>Per serving</div>
+                      <div style={{fontSize:16,fontWeight:800,color:T.brown,fontFamily:"monospace"}}>{Math.round(r.cal||0)} kcal</div>
+                    </div>
+                  </div>
+
+                  {/* steps */}
+                  {r.steps&&(
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Method</div>
+                      <div style={{fontSize:13,color:T.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{r.steps}</div>
+                    </div>
+                  )}
+
+                  {/* actions */}
+                  <div style={{display:"flex",gap:8,marginTop:4}}>
+                    <Btn variant="soft" onClick={()=>startEdit(r)} style={{flex:1}}>Edit recipe</Btn>
+                    <Btn variant="danger" onClick={()=>{onRecipes(recipes.filter(x=>x.id!==r.id));setExpanded(null);}} style={{flex:1}}>Delete</Btn>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+
 // ── PROFILE ───────────────────────────────────────────────────────────────────
 function Profile({profile,goals,foods,recipes,bmr,tdee,weights,onProfile,onGoals,onFoods,onRecipes,onSaveWeight}) {
   const [section,setSection]=useState("stats");
@@ -933,24 +1157,7 @@ function Profile({profile,goals,foods,recipes,bmr,tdee,weights,onProfile,onGoals
       )}
 
       {section==="recipes"&&(
-        <>
-          <div style={{fontSize:12,color:T.sub,background:T.accentBg,borderRadius:10,padding:"10px 14px"}}>
-            Ask the chat to save a recipe — "save my dal tadka recipe: 200g dal, 1 tbsp ghee, spices, yields 4 servings" and it'll calculate macros and save automatically.
-          </div>
-          {recipes.length===0&&<div style={{textAlign:"center",color:T.muted,fontSize:13,padding:30}}>no saved recipes yet.</div>}
-          {recipes.map(r=>(
-            <Card key={r.id}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div>
-                  <div style={{fontSize:14,fontWeight:700,color:T.text}}>📖 {r.name}</div>
-                  <div style={{fontSize:12,color:T.accent,fontWeight:700,marginTop:2}}>{Math.round(r.cal||0)} kcal <span style={{color:T.sub,fontWeight:400,fontSize:11}}>per {r.yieldUnit||"serving"} · P:{Math.round(r.protein||0)}g C:{Math.round(r.carbs||0)}g F:{Math.round(r.fat||0)}g</span></div>
-                  {r.ingredients&&<div style={{fontSize:11,color:T.sub,marginTop:2}}>{r.ingredients.length} ingredients · yields {r.yield} {r.yieldUnit}{r.yield>1?"s":""}</div>}
-                </div>
-                <button onClick={()=>onRecipes(recipes.filter(x=>x.id!==r.id))} style={{background:"none",border:"none",color:T.muted,cursor:"pointer",fontSize:18}}>🗑</button>
-              </div>
-            </Card>
-          ))}
-        </>
+        <RecipesPanel recipes={recipes} onRecipes={onRecipes}/>
       )}
     </div>
   );
