@@ -369,7 +369,7 @@ function Home({totals,goals,log,viewLog,steps,water,tdee,isToday,viewDate,onStep
             </div>}
           </div>
         </div>
-        {isToday&&<button onClick={onGoChat} style={{marginTop:14,width:"100%",background:T.accent,border:"none",borderRadius:10,color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",padding:"10px",fontFamily:"inherit"}}>💬 Log food in Chat</button>}
+        {isToday&&<button onClick={onGoChat} style={{marginTop:14,width:"100%",background:T.accent,border:"none",borderRadius:10,color:"#fff",fontWeight:800,fontSize:13,cursor:"pointer",padding:"10px",fontFamily:"inherit"}}>Log food in Chat</button>}
       </Card>
 
-            
+   
