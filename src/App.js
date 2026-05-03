@@ -858,19 +858,29 @@ function History({log, goals}) {
         {/* daily calorie bars */}
         <Card>
           <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Daily calories</div>
-          <div style={{display:"flex",gap:6,alignItems:"flex-end",height:100}}>
+          <div style={{display:"flex",gap:6,alignItems:"flex-end",height:80}}>
             {weekDays.map(d=>{
               const s=sumDay(d);
-              const h=s.cal>0?Math.max((s.cal/barMax)*90,4):0;
+              const h=s.cal>0?Math.max((s.cal/barMax)*80,4):0;
               const isToday=d===dateStr(0);
               const over=s.cal>goals.cal*1.05;
               return (
-                <div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                  <div style={{fontSize:9,color:T.sub,fontFamily:"monospace"}}>{s.cal>0?Math.round(s.cal):""}</div>
-                  <div style={{width:"100%",height:90,display:"flex",alignItems:"flex-end"}}>
+                <div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                  <div style={{width:"100%",height:80,display:"flex",alignItems:"flex-end"}}>
                     <div style={{width:"100%",height:h,background:over?T.red:isToday?T.accent:T.brown,borderRadius:"4px 4px 0 0",opacity:isToday?1:0.7,transition:"height 0.4s"}}/>
                   </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:6,marginTop:4}}>
+            {weekDays.map(d=>{
+              const s=sumDay(d);
+              const isToday=d===dateStr(0);
+              return (
+                <div key={d} style={{flex:1,textAlign:"center"}}>
                   <div style={{fontSize:9,color:isToday?T.accent:T.sub,fontWeight:isToday?700:400}}>{dayName(d)}</div>
+                  <div style={{fontSize:9,color:T.muted,fontFamily:"monospace"}}>{s.cal>0?Math.round(s.cal):""}</div>
                 </div>
               );
             })}
