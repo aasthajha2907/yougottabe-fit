@@ -219,7 +219,7 @@ export default function App() {
     else if(i<0) break;
   }
 
-  const tabs=[{id:"home",icon:"",label:"Home"},{id:"chat",icon:"",label:"Chat"},{id:"profile",icon:"",label:"Profile"}];
+  const tabs=[{id:"home",label:"Home"},{id:"chat",label:"Chat"},{id:"history",label:"History"},{id:"profile",label:"Profile"}];
 
   return (
     <div style={{background:T.bg,minHeight:"100vh",fontFamily:"'Plus Jakarta Sans','Segoe UI',sans-serif",color:T.text,width:"min(100vw,820px)",margin:"0 auto",display:"flex",flexDirection:"column"}}>
@@ -299,6 +299,7 @@ export default function App() {
               sLog({...log,[viewDate]:todayLog.map((x,i)=>i===ri?updated:x)});
             }
           }} onUpdateLog={(name,newQty)=>{ const idx=[...todayLog].reverse().findIndex(e=>e.name.toLowerCase().includes(name.toLowerCase())); if(idx>=0){ const ri=todayLog.length-1-idx; const e=todayLog[ri]; const r=newQty/(e.qty||1); sLog({...log,[viewDate]:todayLog.map((x,i)=>i===ri?{...e,qty:newQty,cal:(e.cal||0)*r,protein:(e.protein||0)*r,carbs:(e.carbs||0)*r,fat:(e.fat||0)*r,fiber:(e.fiber||0)*r}:x)}); }}} onSaveFood={f=>sFoods([...foods,{...f,id:Date.now()}])} onSaveRecipe={r=>sRecipes([...recipes,{...r,id:Date.now()}])} onUpdateFood={(id,f)=>sFoods(foods.map(x=>x.id===id?{...x,...f}:x))} onUpdateRecipe={(id,r)=>sRecipes(recipes.map(x=>x.id===id?{...x,...r}:x))}/>}
+        {tab==="history" && <History log={log} goals={goals}/>}
         {tab==="profile"&& <Profile profile={profile} goals={goals} foods={foods} recipes={recipes} bmr={bmr} tdee={tdee} weights={weights} onProfile={sp} onGoals={sg} onFoods={sFoods} onRecipes={sRecipes} onSaveWeight={sWts}/>}
       </div>
     </div>
@@ -771,6 +772,331 @@ For plain questions — just answer. No tool needed.`;
         </div>
       </div>
       <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+    </div>
+  );
+}
+
+
+
+// ── HISTORY ──────────────────────────────────────────────────────────────────
+function History({log, goals}) {
+  const [view, setView] = useState("week");      // week | month | compare
+  const [compareA, setCompareA] = useState("");
+  const [compareB, setCompareB] = useState("");
+  const MACROS = [{k:"cal",label:"Calories",color:T.accent,unit:"kcal"},{k:"protein",label:"Protein",color:T.blue,unit:"g"},{k:"carbs",label:"Carbs",color:"#c8822a",unit:"g"},{k:"fat",label:"Fat",color:T.brown,unit:"g"},{k:"fiber",label:"Fiber",color:T.green,unit:"g"}];
+
+  // helpers
+  const dateStr = (offset=0) => { const d=new Date(); d.setDate(d.getDate()+offset); return d.toISOString().split("T")[0]; };
+  const fmt = d => new Date(d+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+  const fmtShort = d => new Date(d+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+  const dayName = d => new Date(d+"T12:00:00").toLocaleDateString("en-IN",{weekday:"short"});
+  const sumDay = d => { const e=log[d]||[]; return e.reduce((a,x)=>{ ["cal","protein","carbs","fat","fiber"].forEach(k=>a[k]=(a[k]||0)+(x[k]||0)); return a; },{cal:0,protein:0,carbs:0,fat:0,fiber:0}); };
+
+  // get last N days
+  const lastNDays = n => Array.from({length:n},(_,i)=>dateStr(-(n-1-i)));
+
+  // week data (last 7 days)
+  const weekDays = lastNDays(7);
+  const weekTotals = weekDays.reduce((a,d)=>{ const s=sumDay(d); ["cal","protein","carbs","fat","fiber"].forEach(k=>a[k]=(a[k]||0)+s[k]); return a; },{cal:0,protein:0,carbs:0,fat:0,fiber:0});
+  const weekAvg = Object.fromEntries(Object.entries(weekTotals).map(([k,v])=>[k,v/7]));
+  const daysLogged = weekDays.filter(d=>(log[d]||[]).length>0).length;
+  const daysOnTarget = weekDays.filter(d=>{ const s=sumDay(d); return s.cal>0 && s.cal<=goals.cal*1.05; }).length;
+
+  // month data (last 28 days, grouped by week)
+  const monthDays = lastNDays(28);
+  const weeks = [[0,6],[7,13],[14,20],[21,27]].map(([s,e])=>({
+    label: `${fmt(monthDays[s])} – ${fmt(monthDays[e])}`,
+    days: monthDays.slice(s,e+1),
+    totals: monthDays.slice(s,e+1).reduce((a,d)=>{ const x=sumDay(d); ["cal","protein","carbs","fat","fiber"].forEach(k=>a[k]=(a[k]||0)+x[k]); return a; },{cal:0,protein:0,carbs:0,fat:0,fiber:0})
+  }));
+
+  // compare weeks
+  const getWeekStart = offset => { const d=new Date(); d.setDate(d.getDate()-d.getDay()-offset*7); return d.toISOString().split("T")[0]; };
+  const weekOptions = Array.from({length:8},(_,i)=>({ value: getWeekStart(i), label: i===0?"This week":i===1?"Last week":`${i} weeks ago` }));
+  const getWeekDays = start => Array.from({length:7},(_,i)=>{ const d=new Date(start+"T12:00:00"); d.setDate(d.getDate()+i); return d.toISOString().split("T")[0]; });
+  const sumWeek = start => { const days=getWeekDays(start); return days.reduce((a,d)=>{ const s=sumDay(d); ["cal","protein","carbs","fat","fiber"].forEach(k=>a[k]=(a[k]||0)+s[k]); return a; },{cal:0,protein:0,carbs:0,fat:0,fiber:0}); };
+
+  const cmpA = compareA ? sumWeek(compareA) : null;
+  const cmpB = compareB ? sumWeek(compareB) : null;
+
+  const barMax = Math.max(...weekDays.map(d=>sumDay(d).cal), goals.cal, 1);
+
+  const views = [{id:"week",label:"This Week"},{id:"month",label:"Monthly"},{id:"compare",label:"Compare"}];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* view switcher */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+        {views.map(v=>(
+          <button key={v.id} onClick={()=>setView(v.id)} style={{
+            background:view===v.id?T.brown:T.surface, color:view===v.id?"#fff":T.sub,
+            border:`1px solid ${view===v.id?T.brown:T.border}`, borderRadius:10,
+            padding:"9px 0", fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"inherit"
+          }}>{v.label}</button>
+        ))}
+      </div>
+
+      {/* ── WEEK VIEW ── */}
+      {view==="week"&&(<>
+        {/* summary cards */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <Card style={{padding:12,textAlign:"center"}}>
+            <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Days logged</div>
+            <div style={{fontSize:24,fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{daysLogged}<span style={{fontSize:13,color:T.muted}}>/7</span></div>
+          </Card>
+          <Card style={{padding:12,textAlign:"center"}}>
+            <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>On target</div>
+            <div style={{fontSize:24,fontWeight:800,color:T.green,fontFamily:"monospace"}}>{daysOnTarget}<span style={{fontSize:13,color:T.muted}}>/7</span></div>
+          </Card>
+          <Card style={{padding:12,textAlign:"center"}}>
+            <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Avg cals</div>
+            <div style={{fontSize:24,fontWeight:800,color:T.brown,fontFamily:"monospace"}}>{Math.round(weekAvg.cal)}</div>
+          </Card>
+        </div>
+
+        {/* daily calorie bars */}
+        <Card>
+          <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Daily calories</div>
+          <div style={{display:"flex",gap:6,alignItems:"flex-end",height:100}}>
+            {weekDays.map(d=>{
+              const s=sumDay(d);
+              const h=s.cal>0?Math.max((s.cal/barMax)*90,4):0;
+              const isToday=d===dateStr(0);
+              const over=s.cal>goals.cal*1.05;
+              return (
+                <div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                  <div style={{fontSize:9,color:T.sub,fontFamily:"monospace"}}>{s.cal>0?Math.round(s.cal):""}</div>
+                  <div style={{width:"100%",height:90,display:"flex",alignItems:"flex-end"}}>
+                    <div style={{width:"100%",height:h,background:over?T.red:isToday?T.accent:T.brown,borderRadius:"4px 4px 0 0",opacity:isToday?1:0.7,transition:"height 0.4s"}}/>
+                  </div>
+                  <div style={{fontSize:9,color:isToday?T.accent:T.sub,fontWeight:isToday?700:400}}>{dayName(d)}</div>
+                </div>
+              );
+            })}
+          </div>
+          {/* goal line label */}
+          <div style={{fontSize:10,color:T.muted,marginTop:6,textAlign:"right"}}>goal: {goals.cal} kcal · red = over</div>
+        </Card>
+
+        {/* week macro totals */}
+        <Card>
+          <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Week totals vs goal (×7)</div>
+          {MACROS.map(m=>{
+            const total=Math.round(weekTotals[m.k]||0);
+            const weekGoal=(goals[m.k]||0)*7;
+            const pct=weekGoal>0?Math.min(total/weekGoal*100,100):0;
+            const over=total>weekGoal*1.05;
+            return (
+              <div key={m.k} style={{marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:11,color:T.sub}}>{m.label}</span>
+                  <span style={{fontSize:11,fontFamily:"monospace",color:over?T.red:T.text}}>
+                    {total}{m.unit} <span style={{color:T.muted}}>/ {weekGoal}{m.unit}</span>
+                  </span>
+                </div>
+                <div style={{height:5,background:T.border,borderRadius:99,overflow:"hidden"}}>
+                  <div style={{height:5,width:`${pct}%`,background:over?T.red:m.color,borderRadius:99,transition:"width 0.5s"}}/>
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+
+        {/* per-day breakdown table */}
+        <Card>
+          <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Daily breakdown</div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead>
+                <tr style={{borderBottom:`1px solid ${T.border}`}}>
+                  <th style={{textAlign:"left",padding:"4px 6px",color:T.sub,fontWeight:700}}>Day</th>
+                  <th style={{textAlign:"right",padding:"4px 6px",color:T.accent,fontWeight:700}}>Kcal</th>
+                  <th style={{textAlign:"right",padding:"4px 6px",color:T.blue,fontWeight:700}}>P</th>
+                  <th style={{textAlign:"right",padding:"4px 6px",color:"#c8822a",fontWeight:700}}>C</th>
+                  <th style={{textAlign:"right",padding:"4px 6px",color:T.brown,fontWeight:700}}>F</th>
+                  <th style={{textAlign:"right",padding:"4px 6px",color:T.green,fontWeight:700}}>Fib</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekDays.map(d=>{
+                  const s=sumDay(d);
+                  const isToday=d===dateStr(0);
+                  const hasData=s.cal>0;
+                  return (
+                    <tr key={d} style={{borderBottom:`1px solid ${T.border}`,background:isToday?T.accentBg:"transparent"}}>
+                      <td style={{padding:"6px 6px",color:isToday?T.brown:T.sub,fontWeight:isToday?700:400}}>{dayName(d)} <span style={{color:T.muted,fontSize:10}}>{fmtShort(d)}</span></td>
+                      <td style={{textAlign:"right",padding:"6px 6px",color:hasData?T.text:T.muted,fontFamily:"monospace"}}>{hasData?Math.round(s.cal):"—"}</td>
+                      <td style={{textAlign:"right",padding:"6px 6px",color:hasData?T.text:T.muted,fontFamily:"monospace"}}>{hasData?Math.round(s.protein)+"g":"—"}</td>
+                      <td style={{textAlign:"right",padding:"6px 6px",color:hasData?T.text:T.muted,fontFamily:"monospace"}}>{hasData?Math.round(s.carbs)+"g":"—"}</td>
+                      <td style={{textAlign:"right",padding:"6px 6px",color:hasData?T.text:T.muted,fontFamily:"monospace"}}>{hasData?Math.round(s.fat)+"g":"—"}</td>
+                      <td style={{textAlign:"right",padding:"6px 6px",color:hasData?T.green:T.muted,fontFamily:"monospace"}}>{hasData?Math.round(s.fiber)+"g":"—"}</td>
+                    </tr>
+                  );
+                })}
+                {/* averages row */}
+                <tr style={{borderTop:`2px solid ${T.border}`,background:T.card}}>
+                  <td style={{padding:"6px 6px",color:T.brown,fontWeight:700,fontSize:10,textTransform:"uppercase"}}>Avg/day</td>
+                  <td style={{textAlign:"right",padding:"6px 6px",color:T.accent,fontWeight:700,fontFamily:"monospace"}}>{Math.round(weekAvg.cal)}</td>
+                  <td style={{textAlign:"right",padding:"6px 6px",color:T.text,fontFamily:"monospace"}}>{Math.round(weekAvg.protein)}g</td>
+                  <td style={{textAlign:"right",padding:"6px 6px",color:T.text,fontFamily:"monospace"}}>{Math.round(weekAvg.carbs)}g</td>
+                  <td style={{textAlign:"right",padding:"6px 6px",color:T.text,fontFamily:"monospace"}}>{Math.round(weekAvg.fat)}g</td>
+                  <td style={{textAlign:"right",padding:"6px 6px",color:T.green,fontFamily:"monospace"}}>{Math.round(weekAvg.fiber)}g</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </>)}
+
+      {/* ── MONTH VIEW ── */}
+      {view==="month"&&(<>
+        <Card>
+          <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Last 28 days — daily calories</div>
+          <div style={{display:"flex",gap:3,alignItems:"flex-end",height:80}}>
+            {monthDays.map(d=>{
+              const cal=sumDay(d).cal;
+              const h=cal>0?Math.max((cal/Math.max(...monthDays.map(x=>sumDay(x).cal),goals.cal,1))*72,3):0;
+              const isToday=d===dateStr(0);
+              const over=cal>goals.cal*1.05;
+              return (
+                <div key={d} style={{flex:1,height:80,display:"flex",flexDirection:"column",justifyContent:"flex-end",alignItems:"center"}}>
+                  <div style={{width:"100%",height:h,background:over?T.red:isToday?T.accent:T.brown,borderRadius:"2px 2px 0 0",opacity:isToday?1:0.65}}/>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+            <span style={{fontSize:9,color:T.muted}}>{fmtShort(monthDays[0])}</span>
+            <span style={{fontSize:9,color:T.muted}}>today</span>
+          </div>
+        </Card>
+
+        {/* weekly summary cards */}
+        {weeks.map((w,wi)=>{
+          const avg=Object.fromEntries(Object.entries(w.totals).map(([k,v])=>[k,v/7]));
+          const logged=w.days.filter(d=>(log[d]||[]).length>0).length;
+          return (
+            <Card key={wi}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text}}>{wi===3?"This week":wi===2?"Last week":`${4-wi} weeks ago`}</div>
+                  <div style={{fontSize:10,color:T.muted}}>{w.label}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:18,fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{Math.round(avg.cal)}<span style={{fontSize:10,color:T.muted}}> avg kcal</span></div>
+                  <div style={{fontSize:10,color:T.sub}}>{logged}/7 days logged</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                {[{k:"protein",color:T.blue,label:"P"},{k:"carbs",color:"#c8822a",label:"C"},{k:"fat",color:T.brown,label:"F"},{k:"fiber",color:T.green,label:"Fib"}].map(m=>(
+                  <div key={m.k} style={{flex:1,background:m.color+"15",borderRadius:8,padding:"6px 4px",textAlign:"center"}}>
+                    <div style={{fontSize:12,fontWeight:700,color:m.color,fontFamily:"monospace"}}>{Math.round(avg[m.k])}</div>
+                    <div style={{fontSize:9,color:T.sub}}>{m.label}/day</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          );
+        })}
+      </>)}
+
+      {/* ── COMPARE VIEW ── */}
+      {view==="compare"&&(<>
+        <Card>
+          <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Compare two weeks</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontSize:10,color:T.brown,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Week A</div>
+              <select value={compareA} onChange={e=>setCompareA(e.target.value)}
+                style={{width:"100%",background:T.bg,border:`1px solid ${T.brown}`,borderRadius:8,padding:"8px 10px",color:T.text,fontSize:12,outline:"none",fontFamily:"inherit"}}>
+                <option value="">select week</option>
+                {weekOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:T.blue,fontWeight:700,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Week B</div>
+              <select value={compareB} onChange={e=>setCompareB(e.target.value)}
+                style={{width:"100%",background:T.bg,border:`1px solid ${T.blue}`,borderRadius:8,padding:"8px 10px",color:T.text,fontSize:12,outline:"none",fontFamily:"inherit"}}>
+                <option value="">select week</option>
+                {weekOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {cmpA&&cmpB&&(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {MACROS.map(m=>{
+                const a=Math.round((cmpA[m.k]||0)/7);
+                const b=Math.round((cmpB[m.k]||0)/7);
+                const maxVal=Math.max(a,b,1);
+                const diff=a-b;
+                return (
+                  <div key={m.k}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:11,fontWeight:700,color:T.sub}}>{m.label} <span style={{fontSize:10,fontWeight:400}}>(avg/day)</span></span>
+                      <span style={{fontSize:11,color:diff>0?T.red:T.green,fontWeight:700}}>{diff>0?"+":""}{diff} {m.unit}</span>
+                    </div>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:2}}>
+                          <span style={{color:T.brown,fontWeight:700}}>A</span>
+                          <span style={{color:T.brown,fontFamily:"monospace"}}>{a}{m.unit}</span>
+                        </div>
+                        <div style={{height:8,background:T.border,borderRadius:99,overflow:"hidden"}}>
+                          <div style={{height:8,width:`${a/maxVal*100}%`,background:T.brown,borderRadius:99}}/>
+                        </div>
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:2}}>
+                          <span style={{color:T.blue,fontWeight:700}}>B</span>
+                          <span style={{color:T.blue,fontFamily:"monospace"}}>{b}{m.unit}</span>
+                        </div>
+                        <div style={{height:8,background:T.border,borderRadius:99,overflow:"hidden"}}>
+                          <div style={{height:8,width:`${b/maxVal*100}%`,background:T.blue,borderRadius:99}}/>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {(!cmpA||!cmpB)&&<div style={{textAlign:"center",color:T.muted,fontSize:13,padding:20}}>select two weeks above to compare</div>}
+        </Card>
+
+        {/* day-by-day comparison */}
+        {cmpA&&cmpB&&(
+          <Card>
+            <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Day by day — calories</div>
+            <div style={{display:"flex",gap:4,alignItems:"flex-end",height:90}}>
+              {Array.from({length:7},(_,i)=>{
+                const dA=getWeekDays(compareA)[i];
+                const dB=getWeekDays(compareB)[i];
+                const calA=sumDay(dA).cal;
+                const calB=sumDay(dB).cal;
+                const maxCal=Math.max(...Array.from({length:7},(_,j)=>Math.max(sumDay(getWeekDays(compareA)[j]).cal,sumDay(getWeekDays(compareB)[j]).cal)),goals.cal,1);
+                const hA=calA>0?Math.max(calA/maxCal*80,3):0;
+                const hB=calB>0?Math.max(calB/maxCal*80,3):0;
+                const days=["Su","Mo","Tu","We","Th","Fr","Sa"];
+                return (
+                  <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                    <div style={{width:"100%",height:80,display:"flex",gap:1,alignItems:"flex-end"}}>
+                      <div style={{flex:1,height:hA,background:T.brown,borderRadius:"2px 2px 0 0",opacity:0.85}}/>
+                      <div style={{flex:1,height:hB,background:T.blue,borderRadius:"2px 2px 0 0",opacity:0.85}}/>
+                    </div>
+                    <div style={{fontSize:9,color:T.sub}}>{days[i]}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{display:"flex",gap:16,marginTop:8,fontSize:10}}>
+              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,background:T.brown,borderRadius:2,display:"inline-block"}}/>Week A</span>
+              <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,background:T.blue,borderRadius:2,display:"inline-block"}}/>Week B</span>
+            </div>
+          </Card>
+        )}
+      </>)}
     </div>
   );
 }
