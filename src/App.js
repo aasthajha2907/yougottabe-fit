@@ -299,7 +299,7 @@ export default function App() {
               sLog({...log,[viewDate]:todayLog.map((x,i)=>i===ri?updated:x)});
             }
           }} onUpdateLog={(name,newQty)=>{ const idx=[...todayLog].reverse().findIndex(e=>e.name.toLowerCase().includes(name.toLowerCase())); if(idx>=0){ const ri=todayLog.length-1-idx; const e=todayLog[ri]; const r=newQty/(e.qty||1); sLog({...log,[viewDate]:todayLog.map((x,i)=>i===ri?{...e,qty:newQty,cal:(e.cal||0)*r,protein:(e.protein||0)*r,carbs:(e.carbs||0)*r,fat:(e.fat||0)*r,fiber:(e.fiber||0)*r}:x)}); }}} onSaveFood={f=>sFoods([...foods,{...f,id:Date.now()}])} onSaveRecipe={r=>sRecipes([...recipes,{...r,id:Date.now()}])} onUpdateFood={(id,f)=>sFoods(foods.map(x=>x.id===id?{...x,...f}:x))} onUpdateRecipe={(id,r)=>sRecipes(recipes.map(x=>x.id===id?{...x,...r}:x))}/>}
-        {tab==="history" && <History log={log} goals={goals}/>}
+        {tab==="history" && <History log={log} goals={goals} weights={weights}/>}
         {tab==="profile"&& <Profile profile={profile} goals={goals} foods={foods} recipes={recipes} bmr={bmr} tdee={tdee} weights={weights} onProfile={sp} onGoals={sg} onFoods={sFoods} onRecipes={sRecipes} onSaveWeight={sWts}/>}
       </div>
     </div>
@@ -779,7 +779,7 @@ For plain questions — just answer. No tool needed.`;
 
 
 // ── HISTORY ──────────────────────────────────────────────────────────────────
-function History({log, goals}) {
+function History({log, goals, weights}) {
   const [view, setView] = useState("week");      // week | month | compare
   const [compareA, setCompareA] = useState("");
   const [compareB, setCompareB] = useState("");
