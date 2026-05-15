@@ -320,7 +320,7 @@ function Home({totals,goals,log,viewLog,steps,water,tdee,isToday,viewDate,onStep
   const projFat=deficit>0?deficit/7.7:0;
   const goalFat=tdee-goals.cal>0?(tdee-goals.cal)/7.7:0;
   const stepsCal=Math.round((steps||0)*(profile?.weight||65)*0.00057);
-  const weightEntries=Object.entries(weights).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,5);
+  const weightEntries=Object.entries(weights).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,30);
 
   const MACROS=[
     {k:"protein",label:"Protein",color:T.blue,goal:goals.protein,unit:"g"},
@@ -785,6 +785,25 @@ function History({log, goals}) {
   const [compareB, setCompareB] = useState("");
   const MACROS = [{k:"cal",label:"Calories",color:T.accent,unit:"kcal"},{k:"protein",label:"Protein",color:T.blue,unit:"g"},{k:"carbs",label:"Carbs",color:"#c8822a",unit:"g"},{k:"fat",label:"Fat",color:T.brown,unit:"g"},{k:"fiber",label:"Fiber",color:T.green,unit:"g"}];
 
+  // weight helpers
+  const allWeightEntries = Object.entries(weights).sort((a,b)=>a[0].localeCompare(b[0]));
+  const last90Days = Array.from({length:90},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-89+i); return d.toISOString().split("T")[0]; });
+  // weekly avg weight — group by week
+  const weightByWeek = (() => {
+    const weeks = {};
+    allWeightEntries.forEach(([date,kg])=>{
+      const d = new Date(date+"T12:00:00");
+      const weekStart = new Date(d); weekStart.setDate(d.getDate()-d.getDay());
+      const key = weekStart.toISOString().split("T")[0];
+      if(!weeks[key]) weeks[key]={sum:0,count:0,start:key};
+      weeks[key].sum+=kg; weeks[key].count++;
+    });
+    return Object.values(weeks).sort((a,b)=>a.start.localeCompare(b.start)).slice(-12);
+  })();
+  const latestWeight = allWeightEntries[allWeightEntries.length-1]?.[1]||null;
+  const earliestWeight = allWeightEntries[0]?.[1]||null;
+  const totalChange = latestWeight&&earliestWeight ? +(latestWeight-earliestWeight).toFixed(1) : null;
+
   // helpers
   const dateStr = (offset=0) => { const d=new Date(); d.setDate(d.getDate()+offset); return d.toISOString().split("T")[0]; };
   const fmt = d => new Date(d+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
@@ -821,13 +840,13 @@ function History({log, goals}) {
 
   const barMax = Math.max(...weekDays.map(d=>sumDay(d).cal), goals.cal, 1);
 
-  const views = [{id:"week",label:"This Week"},{id:"month",label:"Monthly"},{id:"compare",label:"Compare"}];
+  const views = [{id:"week",label:"This Week"},{id:"month",label:"Monthly"},{id:"compare",label:"Compare"},{id:"weight",label:"Weight"}];
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
 
       {/* view switcher */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:6}}>
         {views.map(v=>(
           <button key={v.id} onClick={()=>setView(v.id)} style={{
             background:view===v.id?T.brown:T.surface, color:view===v.id?"#fff":T.sub,
@@ -1107,6 +1126,89 @@ function History({log, goals}) {
           </Card>
         )}
       </>)}
+      {/* ── WEIGHT VIEW ── */}
+      {view==="weight"&&(<>
+        {allWeightEntries.length===0&&(
+          <Card><div style={{textAlign:"center",color:T.muted,fontSize:13,padding:24}}>no weight logged yet. log your weight from the Home tab.</div></Card>
+        )}
+        {allWeightEntries.length>0&&(<>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+            <Card style={{padding:12,textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Current</div>
+              <div style={{fontSize:22,fontWeight:800,color:T.accent,fontFamily:"monospace"}}>{latestWeight}<span style={{fontSize:11,color:T.muted}}> kg</span></div>
+            </Card>
+            <Card style={{padding:12,textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Starting</div>
+              <div style={{fontSize:22,fontWeight:800,color:T.brown,fontFamily:"monospace"}}>{earliestWeight}<span style={{fontSize:11,color:T.muted}}> kg</span></div>
+            </Card>
+            <Card style={{padding:12,textAlign:"center"}}>
+              <div style={{fontSize:10,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Change</div>
+              <div style={{fontSize:22,fontWeight:800,color:totalChange<0?T.green:totalChange>0?T.red:T.sub,fontFamily:"monospace"}}>
+                {totalChange!==null?(totalChange>0?"+":"")+totalChange+" kg":"—"}
+              </div>
+            </Card>
+          </div>
+
+          {weightByWeek.length>1&&(
+            <Card>
+              <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Weekly average</div>
+              {(()=>{
+                const vals=weightByWeek.map(w=>+(w.sum/w.count).toFixed(1));
+                const minW=Math.min(...vals)-0.5;
+                const maxW=Math.max(...vals)+0.5;
+                const range=maxW-minW||1;
+                return (<>
+                  <div style={{display:"flex",gap:4,alignItems:"flex-end",height:80}}>
+                    {weightByWeek.map((w,i)=>{
+                      const avg=+(w.sum/w.count).toFixed(1);
+                      const h=Math.max(((avg-minW)/range)*72,4);
+                      const isLatest=i===weightByWeek.length-1;
+                      return (
+                        <div key={w.start} style={{flex:1,height:80,display:"flex",alignItems:"flex-end"}}>
+                          <div style={{width:"100%",height:h,background:isLatest?T.accent:T.brown,borderRadius:"4px 4px 0 0",opacity:isLatest?1:0.65}}/>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:4,marginTop:6}}>
+                    {weightByWeek.map((w,i)=>{
+                      const avg=+(w.sum/w.count).toFixed(1);
+                      const isLatest=i===weightByWeek.length-1;
+                      const label=new Date(w.start+"T12:00:00").toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+                      return (
+                        <div key={w.start} style={{flex:1,textAlign:"center"}}>
+                          <div style={{fontSize:8,color:isLatest?T.accent:T.sub}}>{label}</div>
+                          <div style={{fontSize:9,fontWeight:700,color:isLatest?T.accent:T.brown,fontFamily:"monospace"}}>{avg}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>);
+              })()}
+            </Card>
+          )}
+
+          <Card>
+            <div style={{fontSize:11,fontWeight:700,color:T.sub,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Full log</div>
+            <div style={{maxHeight:320,overflowY:"auto"}}>
+              {[...allWeightEntries].reverse().map(([date,kg],i,arr)=>{
+                const prev=arr[i+1]?.[1]||null;
+                const diff=prev?+(kg-prev).toFixed(1):null;
+                return (
+                  <div key={date} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:12,color:T.sub}}>{new Date(date+"T12:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short",year:"numeric"})}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      {diff!==null&&<span style={{fontSize:11,color:diff<0?T.green:diff>0?T.red:T.muted,fontFamily:"monospace"}}>{diff>0?"+":""}{diff} kg</span>}
+                      <span style={{fontSize:15,fontWeight:800,color:T.brown,fontFamily:"monospace"}}>{kg} kg</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </>)}
+      </>)}
+
     </div>
   );
 }
