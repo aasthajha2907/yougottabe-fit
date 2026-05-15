@@ -792,7 +792,10 @@ function History({log, goals, weights}) {
     const weeks = {};
     allWeightEntries.forEach(([date,kg])=>{
       const d = new Date(date+"T12:00:00");
-      const weekStart = new Date(d); weekStart.setDate(d.getDate()-d.getDay());
+      const dow = d.getDay(); // 0=Sun, 1=Mon...
+      const weekStart = new Date(d);
+      weekStart.setDate(d.getDate() - dow); // back to Sunday
+      weekStart.setHours(0,0,0,0);
       const key = weekStart.toISOString().split("T")[0];
       if(!weeks[key]) weeks[key]={sum:0,count:0,start:key};
       weeks[key].sum+=kg; weeks[key].count++;
