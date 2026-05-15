@@ -787,7 +787,6 @@ function History({log, goals, weights}) {
 
   // weight helpers
   const allWeightEntries = Object.entries(weights).sort((a,b)=>a[0].localeCompare(b[0]));
-  const last90Days = Array.from({length:90},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-89+i); return d.toISOString().split("T")[0]; });
   // weekly avg weight — group by week
   const weightByWeek = (() => {
     const weeks = {};
